@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 {
-    'name': "monstar_suite",
+    'name': "monstar_main",
 
     'summary': "Sales, Accounting, Inventory Customization",
 
