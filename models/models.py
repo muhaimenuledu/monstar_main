@@ -130,6 +130,9 @@ class MonstarMain(models.Model):
         ])
 
         for rec in self:
+            breakdown = []
+
+            # Filter lines for this record if needed (or use global move_lines)
             lines_by_partner = {}
             for line in move_lines:
                 partner = line.partner_id
@@ -137,13 +140,20 @@ class MonstarMain(models.Model):
                     lines_by_partner[partner] = []
                 lines_by_partner[partner].append(line)
 
-            breakdown = []
-
             for partner, lines in lines_by_partner.items():
                 breakdown.append("")
                 breakdown.append("=" * 80)
                 breakdown.append(f"Partner: {partner.name}")
                 breakdown.append("=" * 80)
+
+                # 🟢 Open Balance Logic
+                total_debit = sum(line.debit for line in lines)
+                total_credit = sum(line.credit for line in lines)
+                open_balance = total_debit - total_credit
+                breakdown.append(f"  Total Debit : {total_debit:.2f}")
+                breakdown.append(f"  Total Credit: {total_credit:.2f}")
+                breakdown.append(f"  Open Balance: {open_balance:.2f}")
+                breakdown.append("-" * 80)
 
                 for line in lines:
                     breakdown.append(f"  Date     : {line.date}")
@@ -154,7 +164,6 @@ class MonstarMain(models.Model):
                     breakdown.append(f"  Credit   : {line.credit:.2f}")
                     breakdown.append("  " + "-" * 60)
 
-                # Show full journal entry
                 move = lines[0].move_id
                 full_lines = move.line_ids.sorted(key=lambda l: l.account_id.code or '')
 
@@ -170,6 +179,7 @@ class MonstarMain(models.Model):
                 breakdown.append("  " + "=" * 90)
 
             rec.partner_journal_breakdown = '\n'.join(breakdown) if breakdown else 'No partner data found.'
+
 
     # partner
 
