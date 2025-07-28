@@ -15,6 +15,162 @@ class MonstarMain(models.Model):
     list_price = fields.Float(string='Sales Price', compute='_compute_product_info', store=True)
 
 
+    # GL
+    # account_names = fields.Text(string="All Chart of Accounts", compute="_compute_all_account_names", store=False)
+
+    # @api.depends()
+    # def _compute_all_account_names(self):
+    #     Account = self.env['account.account'].sudo()
+    #     all_accounts = Account.search([], order='name')
+    #     names = '\n'.join([acct.name for acct in all_accounts])  # <- one per line
+
+    #     for rec in self:
+    #         rec.account_names = names
+    account_names = fields.Text(string="All Chart of Accounts", compute="_compute_all_account_data", store=False)
+    partner_names = fields.Text(string="Partners", compute="_compute_all_account_data", store=False)
+    account_breakdown = fields.Text(string="Account Line Breakdown", compute="_compute_all_account_data", store=False)
+    journal_items = fields.Text(string="Accounts|Journal Breakdown", compute="_compute_all_account_data", store=False)
+
+    total_debit = fields.Float(string="Total Debit", compute="_compute_all_account_data", store=False)
+    total_credit = fields.Float(string="Total Credit", compute="_compute_all_account_data", store=False)
+
+    @api.depends()
+    def _compute_all_account_data(self):
+        AccountMoveLine = self.env['account.move.line'].sudo()
+        Account = self.env['account.account'].sudo()
+        all_accounts = Account.search([], order='code')
+
+        for rec in self:
+            # All account names
+            rec.account_names = '\n'.join([acct.name for acct in all_accounts])
+
+            # Journal items
+            move_lines = AccountMoveLine.search([
+                ('account_id', 'in', all_accounts.ids),
+                ('move_id.state', '=', 'posted')
+            ])
+
+            # Partners
+            partners = move_lines.mapped('partner_id.name')
+            rec.partner_names = '\n'.join(partners) if partners else 'N/A'
+
+            # Total debit and credit
+            rec.total_debit = sum(move_lines.mapped('debit'))
+            rec.total_credit = sum(move_lines.mapped('credit'))
+
+            # Breakdown per account
+            breakdown_lines = []
+            for account in all_accounts:
+                lines = move_lines.filtered(lambda ml: ml.account_id == account)
+
+                if not lines:
+                    continue
+
+                breakdown_lines.append(f"[{account.code}] {account.name}")
+                for line in lines:
+                    ref = line.move_id.name or 'N/A'
+                    debit = line.debit
+                    credit = line.credit
+                    breakdown_lines.append(f"  - {ref} | Debit: {debit:.2f} | Credit: {credit:.2f}")
+            rec.account_breakdown = '\n'.join(breakdown_lines)
+
+            # Journal item details
+            journal_item_lines = []
+
+            for account in all_accounts:
+                lines = move_lines.filtered(lambda l: l.account_id == account)
+                if not lines:
+                    continue
+
+                journal_item_lines.append("")
+                journal_item_lines.append("═" * 80)
+                journal_item_lines.append(f"{account.code} - {account.name}")
+                journal_item_lines.append("═" * 80)
+
+                for line in lines:
+                    journal_item_lines.append(f"  Date     : {line.date}")
+                    journal_item_lines.append(f"  Ref      : {line.move_id.name or 'N/A'}")
+                    journal_item_lines.append(f"  Partner  : {line.partner_id.name or 'N/A'}")
+                    journal_item_lines.append(f"  Label    : {line.name or '-'}")
+                    journal_item_lines.append(f"  Account  : {line.account_id.name}")
+                    journal_item_lines.append(f"  Debit    : {line.debit:.2f}")
+                    journal_item_lines.append(f"  Credit   : {line.credit:.2f}")
+                    journal_item_lines.append("  " + "-" * 60)
+                move = line.move_id
+                full_lines = move.line_ids.sorted(key=lambda l: l.account_id.code)
+
+                journal_item_lines.append("  Full Journal Lines:")
+                journal_item_lines.append("  {:<30} {:<30} {:>10} {:>10}".format("Account", "Partner", "Debit", "Credit"))
+                journal_item_lines.append("  " + "-" * 90)
+
+                for jline in full_lines:
+                    acc = f"{jline.account_id.code} {jline.account_id.name}"
+                    partner = jline.partner_id.name or '-'
+                    debit = f"{jline.debit:.2f}"
+                    credit = f"{jline.credit:.2f}"
+
+                    journal_item_lines.append("  {:<30} {:<30} {:>10} {:>10}".format(acc[:30], partner[:30], debit, credit))
+                
+                journal_item_lines.append("  " + "=" * 90)
+            rec.journal_items = '\n'.join(journal_item_lines)
+
+    #Partner Report
+
+    partner_journal_breakdown = fields.Text(string="Partner Journal Breakdown", compute="_compute_all_account_data2", store=False)
+
+    @api.depends()
+    def _compute_all_account_data2(self):
+        AccountMoveLine = self.env['account.move.line'].sudo()
+        Account = self.env['account.account'].sudo()
+
+        # Search only posted move lines with partner and account
+        move_lines = AccountMoveLine.search([
+            ('partner_id', '!=', False),
+            ('move_id.state', '=', 'posted')
+        ])
+
+        for rec in self:
+            lines_by_partner = {}
+            for line in move_lines:
+                partner = line.partner_id
+                if partner not in lines_by_partner:
+                    lines_by_partner[partner] = []
+                lines_by_partner[partner].append(line)
+
+            breakdown = []
+
+            for partner, lines in lines_by_partner.items():
+                breakdown.append("")
+                breakdown.append("=" * 80)
+                breakdown.append(f"Partner: {partner.name}")
+                breakdown.append("=" * 80)
+
+                for line in lines:
+                    breakdown.append(f"  Date     : {line.date}")
+                    breakdown.append(f"  Ref      : {line.move_id.name or 'N/A'}")
+                    breakdown.append(f"  Label    : {line.name or '-'}")
+                    breakdown.append(f"  Account  : {line.account_id.code} {line.account_id.name}")
+                    breakdown.append(f"  Debit    : {line.debit:.2f}")
+                    breakdown.append(f"  Credit   : {line.credit:.2f}")
+                    breakdown.append("  " + "-" * 60)
+
+                # Show full journal entry
+                move = lines[0].move_id
+                full_lines = move.line_ids.sorted(key=lambda l: l.account_id.code or '')
+
+                breakdown.append("  Full Journal Lines:")
+                breakdown.append("  {:<30} {:<30} {:>10} {:>10}".format("Account", "Partner", "Debit", "Credit"))
+                breakdown.append("  " + "-" * 90)
+                for jline in full_lines:
+                    acc = f"{jline.account_id.code} {jline.account_id.name}"
+                    partner_name = jline.partner_id.name or '-'
+                    breakdown.append("  {:<30} {:<30} {:>10.2f} {:>10.2f}".format(
+                        acc[:30], partner_name[:30], jline.debit, jline.credit
+                    ))
+                breakdown.append("  " + "=" * 90)
+
+            rec.partner_journal_breakdown = '\n'.join(breakdown) if breakdown else 'No partner data found.'
+
     # partner
 
     partner_id = fields.Many2one('res.partner', string='Partner', required=True)
@@ -31,6 +187,20 @@ class MonstarMain(models.Model):
     balance = fields.Monetary(string='Balance', compute='_compute_balance', store=True, currency_field='currency_id')
     move_line_ids = fields.One2many('account.move.line', 'partner_id', string='Journal Items')
     journal_entry_count = fields.Integer(string='Journal Entry Count', compute='_compute_journal_entry_count')
+
+    account_receivable_id = fields.Many2one(
+        'account.account',
+        string='Receivable Account',
+        related='partner_id.property_account_receivable_id',
+        store=False,
+    )
+
+    account_payable_id = fields.Many2one(
+        'account.account',
+        string='Payable Account',
+        related='partner_id.property_account_payable_id',
+        store=False,
+    )
 
     @api.depends('credit', 'debit')
     def _compute_balance(self):
