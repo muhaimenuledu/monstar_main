@@ -1,2 +1,8 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_monstar_main_monstar_main,monstar_main.monstar_main,model_monstar_main_monstar_main,base.group_user,1,1,1,1
+access_general_ledger,access.general.ledger,model_general_ledger,base.group_user,1,1,1,1
+access_stock_mles,access.stock.mles,model_stock_mles,base.group_user,1,1,1,1
+access_stock_summary_wizard,access.stock.summary.wizard,model_stock_summary_wizard,,1,1,1,1
+access_partner_ledger,access.partner.ledger,model_partner_ledger,base.group_user,1,1,1,1
+access_partner_ledger_group,access.partner.ledger.group,model_partner_ledger_group,base.group_user,1,1,1,1
+
