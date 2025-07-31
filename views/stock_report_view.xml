@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_stock_report_list" model="ir.ui.view" >
+      <field name="name">stock.report.list</field>
+      <field name="model">stock.mles</field>
+      <field name="arch" type="xml">
+        <list>
+            <field name="product_id"/>
+            <field name="name" readonly="1"/>
+            <field name="default_code" readonly="1"/>
+            <field name="categ_id" readonly="1"/>
+            <field name="list_price" readonly="1"/>
+            <field name="uom_id" readonly="1"/>
+            <!-- <field name="date_from" readonly="1"/>
+            <field name="date_to" readonly="1"/> -->
+            <field name="qty_in" readonly="1"/>
+            <field name="qty_out" readonly="1"/>
+            <field name="qty_available" readonly="1"/>
+            <button name="action_refresh_stock_summary"
+                        string="Refresh Products"
+                        type="object"
+                        class="btn-primary"/>
+        </list>
+      </field>
+    </record>
+
+    <record id="action_stock_report" model="ir.actions.act_window" >
+      <field name="name">Stock Report</field>
+      <field name="res_model">stock.mles</field>
+      <field name="view_mode">list,form</field>
+    </record>
+</odoo>
