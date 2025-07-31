@@ -1,27 +1,34 @@
 # -*- coding: utf-8 -*-
 {
-    'name': "monstar_main",
-
-    'summary': "Sales, Accounting, Inventory Customization",
-
-    'description': """ Implement Clents Requirement """,
+    'name': "Monstar Main",
 
     'author': "MLES/Pranto",
 
     'category': 'Accounting',
 
-    'version': '18.1',
+    'license' : "LGPL-3",
+
+    'version': '18.0.0.1',
 
     # any module necessary for this one to work correctly
 
     'depends': ['base','product','contacts','account','sale_management', 'purchase'],
 
     # always loaded
+    'images': ['static/description/icon.png'],
 
     'data': [
         'security/ir.model.access.csv',
         'views/views.xml',
+        'views/general_ledger_view.xml',
+        'views/partner_ledger_view.xml',
+        'views/partner_ledger_group_view.xml',
+        'views/stock_report_view.xml',
+        'views/stock_summary_wizard_views.xml',
 
+        
+        
+        'views/menu.xml',
     ],
 
 }
