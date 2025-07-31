@@ -2,7 +2,7 @@
   <data>
     <!-- explicit list view definition -->
 
-    <record model="ir.ui.view" id="monstar_main.list">
+    <!-- <record model="ir.ui.view" id="monstar_main.list">
       <field name="name">monstar_main list</field>
       <field name="model">monstar_main.monstar_main</field>
       <field name="arch" type="xml">
@@ -16,9 +16,9 @@
           <field name="qout"/>
         </list>
       </field>
-    </record>
+    </record> -->
 
-    <record model="ir.ui.view" id="monstar_main.list_no_categ">
+    <!-- <record model="ir.ui.view" id="monstar_main.list_no_categ">
       <field name="name">monstar_main list no category</field>
       <field name="model">monstar_main.monstar_main</field>
       <field name="arch" type="xml">
@@ -43,40 +43,41 @@
 
         </list>
       </field>
-    </record>
+    </record> -->
 
 
-    <record model="ir.ui.view" id="monstar_main.list_test">
+    <!-- <record model="ir.ui.view" id="monstar_main.list_test">
       <field name="name">monstar_main list no category</field>
       <field name="model">monstar_main.monstar_main</field>
       <field name="arch" type="xml">
-        <list>
+        <list> -->
           <!-- <field name="account_names"/>
           <field name="partner_names"/> -->
           <!-- <field name="account_breakdown" widget="text"/> -->
-          <field name="journal_items" widget="text"/>
-          <!-- <field name="total_debit"/>
-          <field name="total_credit"/> -->
-
-        </list>
-      </field>
-    </record>
-
-    <record model="ir.ui.view" id="monstar_main.list_partner">
-      <field name="name">monstar_main list partner</field>
-      <field name="model">monstar_main.monstar_main</field>
-      <field name="arch" type="xml">
-        <list>
-          <!-- <field name="account_names"/>
-          <field name="partner_names"/> -->
-          <field name="partner_journal_breakdown" widget="text"/>
           <!-- <field name="journal_items" widget="text"/> -->
           <!-- <field name="total_debit"/>
           <field name="total_credit"/> -->
 
-        </list>
+        <!-- </list>
       </field>
-    </record>
+    </record> -->
+
+    <!-- <record model="ir.ui.view" id="monstar_main.list_partner">
+      <field name="name">monstar_main list partner</field>
+      <field name="model">monstar_main.monstar_main</field>
+      <field name="arch" type="xml">
+        <list> -->
+          <!-- <field name="account_names"/>
+          <field name="partner_names"/> -->
+          <!-- <field name="partner_journal_breakdown" widget="text"/> -->
+          <!-- <field name="journal_items" widget="text"/> -->
+          <!-- <field name="total_debit"/>
+          <field name="total_credit"/> -->
+
+        <!-- </list>
+      </field>
+    </record> -->
+    
     <!-- <record model="ir.ui.view" id="monstar_main.form_test">
       <field name="name">monstar_main form no category</field>
       <field name="model">monstar_main.monstar_main</field>
@@ -94,37 +95,37 @@
 
     <!-- actions opening views on models -->
 
-    <record model="ir.actions.act_window" id="monstar_main.action_window">
+    <!-- <record model="ir.actions.act_window" id="monstar_main.action_window">
       <field name="name">monstar_main window</field>
       <field name="res_model">monstar_main.monstar_main</field>
       <field name="view_mode">list,form</field>
-    </record>
+    </record> -->
 
-    <record model="ir.actions.act_window" id="monstar_main.action_window2">
+    <!-- <record model="ir.actions.act_window" id="monstar_main.action_window2">
       <field name="name">monstar_main2 window</field>
       <field name="res_model">monstar_main.monstar_main</field>
       <field name="view_mode">list,form</field>
       <field name="view_id" ref="monstar_main.list_no_categ"/>
-    </record>
+    </record> -->
 
-    <record model="ir.actions.act_window" id="monstar_main.action_window3">
+    <!-- <record model="ir.actions.act_window" id="monstar_main.action_window3">
       <field name="name">monstar_main3 window</field>
       <field name="res_model">monstar_main.monstar_main</field>
       <field name="view_mode">list,form</field>
       <field name="view_id" ref="monstar_main.list_test"/>
-    </record>
+    </record> -->
 
-    <record model="ir.actions.act_window" id="monstar_main.action_window4">
+    <!-- <record model="ir.actions.act_window" id="monstar_main.action_window4">
       <field name="name">monstar_main4 window</field>
       <field name="res_model">monstar_main.monstar_main</field>
       <field name="view_mode">list,form</field>
       <field name="view_id" ref="monstar_main.list_partner"/>
-    </record>
+    </record> -->
 
 
     <!-- server action to the one above -->
 
-    <record model="ir.actions.server" id="monstar_main.action_server">
+    <!-- <record model="ir.actions.server" id="monstar_main.action_server">
       <field name="name">monstar_main server</field>
       <field name="model_id" ref="model_monstar_main_monstar_main"/>
       <field name="state">code</field>
@@ -136,28 +137,28 @@
         }
       </field>
     </record>
-    
+     -->
 
 
     <!-- Top menu item -->
 
-    <menuitem name="monstar_main" id="monstar_main.menu_root"/>
+    <!-- <menuitem name="monstar_main" id="monstar_main.menu_root"/> -->
 
     <!-- menu categories -->
 
-    <menuitem name="Stock Summary" id="monstar_main.menu_1" parent="monstar_main.menu_root"/>
-    <menuitem name="Report" id="monstar_main.menu_2" parent="monstar_main.menu_root"/>
+    <!-- <menuitem name="Stock Summary" id="monstar_main.menu_1" parent="monstar_main.menu_root"/>
+    <menuitem name="Report" id="monstar_main.menu_2" parent="monstar_main.menu_root"/> -->
 
     <!-- actions -->
 
-    <menuitem name="List" id="monstar_main.menu_1_list" parent="monstar_main.menu_1"
+    <!-- <menuitem name="List" id="monstar_main.menu_1_list" parent="monstar_main.menu_1"
               action="monstar_main.action_window"/>
     <menuitem name="Partners" id="monstar_main" parent="monstar_main.menu_2"
               action="monstar_main.action_window2"/>
     <menuitem name="General Ledger" id="monstar_main_new" parent="monstar_main.menu_2"
               action="monstar_main.action_window3"/>
     <menuitem name="Partner Ledger" id="monstar_main_new_one" parent="monstar_main.menu_2"
-              action="monstar_main.action_window4"/>
+              action="monstar_main.action_window4"/> -->
 
   </data>
 </odoo>
