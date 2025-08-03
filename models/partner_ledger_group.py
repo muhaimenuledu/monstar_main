@@ -5,7 +5,7 @@ class PartnerLedgerGroup(models.Model):
     _name = 'partner.ledger.group'
     _description = "Partner Ledger Journal Line Breakdown"
 
-    partner_journal_breakdown = fields.Text(string="Partner Journal Breakdown", compute="_compute_journal_breakdown", store=False)
+    partner_journal_breakdown = fields.Html(string="Partner Journal Breakdown", compute="_compute_journal_breakdown", store=False)
 
     @api.depends()
     def _compute_journal_breakdown(self):
@@ -14,58 +14,83 @@ class PartnerLedgerGroup(models.Model):
         move_lines = AccountMoveLine.search([
             ('partner_id', '!=', False),
             ('move_id.state', '=', 'posted')
-        ])
+        ], order='date, id')
 
         for rec in self:
             breakdown = []
-
-            # Group lines by partner
             lines_by_partner = {}
+
             for line in move_lines:
                 partner = line.partner_id
-                if partner not in lines_by_partner:
-                    lines_by_partner[partner] = []
-                lines_by_partner[partner].append(line)
+                lines_by_partner.setdefault(partner, []).append(line)
+
+            # Column widths (fixed)
+            widths = {
+                "date": 14,
+                "ref": 22,
+                "label": 28,
+                "group": 28,
+                "account_dr": 30,
+                "account_cr": 30,
+                "amount_dr": 15,
+                "amount_cr": 15,
+                "balance": 15,
+            }
 
             for partner, lines in lines_by_partner.items():
-                breakdown.append("")
-                breakdown.append("=" * 200)
-                breakdown.append(f"Partner: {partner.name}")
-                breakdown.append("=" * 200)
+                balance = 0.0
+                breakdown.append(f"PARTNER_HEADER||Party: {partner.name}")
+                header = "| {date} | {ref} | {label} | {group} | {account_dr} | {account_cr} | {amount_dr} | {amount_cr} | {balance} |".format(
+                    date="Date".center(widths["date"]),
+                    ref="Ref".center(widths["ref"]),
+                    label="Label".center(widths["label"]),
+                    group="Product Group".center(widths["group"]),
+                    account_dr="Account (DR.)".center(widths["account_dr"]),
+                    account_cr="Account (CR.)".center(widths["account_cr"]),
+                    amount_dr="Amount Dr.".center(widths["amount_dr"]),
+                    amount_cr="Amount Cr.".center(widths["amount_cr"]),
+                    balance="Balance".center(widths["balance"]),
+                )
+                breakdown.append(header)
 
-                seen_moves = set()
-                for line in sorted(lines, key=lambda l: (l.date, l.move_id.id)):
+                for line in lines:
                     move = line.move_id
-                    if move.id in seen_moves:
-                        continue
-                    seen_moves.add(move.id)
 
-                    breakdown.append(f"\nJournal Entry: {move.name or ''}")
-                    breakdown.append(f"Date: {move.date} | Journal: {move.journal_id.name}")
-                    breakdown.append("-" * 270)
+                    label = (line.name or move.name or "Unavailable")[:widths["label"]]
+                    ref = (move.ref or move.name or "Unavailable")[:widths["ref"]]
+                    product_group = (line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unavailable")[:widths["group"]]
+                    account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else "Unavailable"
+                    account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else "Unavailable"
+                    amount_dr = line.debit or 0.0
+                    amount_cr = line.credit or 0.0
+                    balance += amount_dr - amount_cr
 
-                    breakdown.append(" | {:>45} {:>45} {:>45} {:>45} {:>45} {:>35} {:>35}".format(
-                        "Account", "Partner", "Product", "Category", "Date", "Debit", "Credit"
-                    ))
-                    breakdown.append(" | " + "-" * 260 + " |")
+                    row = "| {date} | {ref} | {label} | {group} | {account_dr} | {account_cr} | {amount_dr} | {amount_cr} | {balance} |".format(
+                        date=str(line.date)[:widths["date"]].ljust(widths["date"]),
+                        ref=ref[:widths["ref"]].ljust(widths["ref"]),
+                        label=label[:widths["label"]].ljust(widths["label"]),
+                        group=product_group[:widths["group"]].ljust(widths["group"]),
+                        account_dr=account_dr[:widths["account_dr"]].ljust(widths["account_dr"]),
+                        account_cr=account_cr[:widths["account_cr"]].ljust(widths["account_cr"]),
+                        amount_dr="{:,.2f}".format(amount_dr).rjust(widths["amount_dr"]),
+                        amount_cr="{:,.2f}".format(amount_cr).rjust(widths["amount_cr"]),
+                        balance="{:,.2f}".format(balance).rjust(widths["balance"]),
+                    )
+                    breakdown.append(row)
 
-                    for jline in move.line_ids.filtered(lambda l: l.partner_id == partner):
-                        acc = f"{jline.account_id.code or ''} {jline.account_id.name or ''}"
-                        partner_name = jline.partner_id.name or '-'
-                        product_name = jline.product_id.name or '-'
-                        category_name = jline.product_id.categ_id.name if jline.product_id and jline.product_id.categ_id else '-'
+            # Render as HTML table
+            html = "<h3>Partner Ledger Journal Line Breakdown</h3>"
+            html += "<table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size: 12px;'>"
 
-                        breakdown.append(" | {:>40} {:>35} {:>35} {:>55} {:>30} {:>15.2f} {:>15.2f}".format(
-                            acc[:20],
-                            partner_name[:25],
-                            product_name[:25],
-                            category_name[:25],
-                            str(jline.date or '')[:20],
-                            jline.debit,
-                            jline.credit
-                        ))
+            for line in breakdown:
+                if line.startswith("PARTNER_HEADER||"):
+                    partner_name = line.split("||")[1]
+                    html += f"<tr style='background:#a0c4ff;'><td colspan='9'><strong>{partner_name}</strong></td></tr>"
+                elif line.strip().startswith("|"):
+                    columns = [col.strip() for col in line.strip('|').split('|')]
+                    tag = "th" if "Date" in columns[0] else "td"
+                    row_style = "background:#f1f1f1;" if tag == "th" else ""
+                    html += f"<tr style='{row_style}'>" + "".join([f"<{tag}>{c}</{tag}>" for c in columns]) + "</tr>"
 
-                    breakdown.append("=" * 200)
-
-            rec.partner_journal_breakdown = '\n'.join(breakdown) if breakdown else 'No partner data found.'
-# working
+            html += "</table>"
+            rec.partner_journal_breakdown = html
