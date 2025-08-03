@@ -1,103 +1,70 @@
 from odoo import api, models, fields
+from collections import defaultdict
+from datetime import datetime
 
 
-class PartnerLedger(models.Model):
+class PartnerLedgerGroup(models.Model):
     _name = 'partner.ledger'
-    _description = "PL Customization"
+    _description = "Partner Ledger Journal Line Breakdown"
 
-    partner_journal_breakdown = fields.Text(string="Partner Journal Breakdown", compute="_compute_all_account_data2", store=False)
+    partner_journal_breakdown = fields.Html(string="Partner Journal Breakdown", compute="_compute_journal_breakdown", store=False)
 
     @api.depends()
-    def _compute_all_account_data2(self):
+    def _compute_journal_breakdown(self):
         AccountMoveLine = self.env['account.move.line'].sudo()
 
         move_lines = AccountMoveLine.search([
             ('partner_id', '!=', False),
             ('move_id.state', '=', 'posted')
-        ])
+        ], order='date, id')
 
+        # Grouping: Product Group → Partner
+        grouped_data = defaultdict(lambda: defaultdict(list))
+
+        for line in move_lines:
+            product_group = line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unknown"
+            partner = line.partner_id.name or "Unknown"
+            grouped_data[product_group][partner].append(line)
+
+        # Render breakdown as HTML table
         for rec in self:
-            breakdown = []
+            html = "<h3>Party ledger: Group summary ledger detail</h3>"
+            html += "<table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size: 12px;'>"
+            html += "<tr><td><strong>Group:</strong></td><td colspan='7'>All</td></tr>"
 
-            lines_by_partner = {}
-            for line in move_lines:
-                partner = line.partner_id
-                if partner not in lines_by_partner:
-                    lines_by_partner[partner] = []
-                lines_by_partner[partner].append(line)
+            # Table headers
+            html += (
+                "<tr style='background:#ddd;'>"
+                "<th>Date</th><th>Product Group</th><th>Partner</th>"
+                "<th>Opening Balance</th><th>Amount Dr.</th><th>Amount Cr.</th><th>Balance</th>"
+                "</tr>"
+            )
 
-            for partner, lines in lines_by_partner.items():
-                breakdown.append("")
-                breakdown.append("=" * 200)
-                breakdown.append(f"Partner: {partner.name}")
-                breakdown.append("=" * 200)
+            for group, partners in grouped_data.items():
+                for partner, lines in partners.items():
+                    opening_balance = 0.0
+                    balance = 0.0
+                    for line in lines:
+                        opening_balance += line.debit - line.credit
 
-                total_debit = sum(line.debit for line in lines)
-                total_credit = sum(line.credit for line in lines)
-                open_balance = total_debit - total_credit
-                breakdown.append(f"  Total Debit : {total_debit:.2f}")
-                breakdown.append(f"  Total Credit: {total_credit:.2f}")
-                breakdown.append(f"  Open Balance: {open_balance:.2f}")
-                breakdown.append("-" * 270)
+                    for line in lines:
+                        date = line.date.strftime('%-m/%-d/%Y')
+                        amount_dr = line.debit
+                        amount_cr = line.credit
+                        balance += amount_dr - amount_cr
 
-                # Journal summary header with AR/AP columns
-                breakdown.append("{:<25} {:<25} {:<40} {:<40} {:<40} {:>40} {:>40} {:>40} {:>40} {:>40}".format(
-                    "Journal Entry", "Journal", "Account", "Inv Date", "Due Date", "Debit", "Credit", "Balance",
-                    "Receivable", "Payable"
-                ))
-                breakdown.append("-" * 270)
-
-                seen_moves = set()
-                for line in sorted(lines, key=lambda l: (l.date, l.move_id.id)):
-                    move = line.move_id
-                    if move.id in seen_moves:
-                        continue
-                    seen_moves.add(move.id)
-
-                    # Primary line to show summary
-                    primary_line = move.line_ids.filtered(lambda l: l.partner_id == partner).sorted('id')[:1]
-                    if primary_line:
-                        jline = primary_line[0]
-                        debit = jline.debit
-                        credit = jline.credit
-                        balance = debit - credit
-
-                        # Find receivable and payable accounts from the move
-                        receivable_account = next(
-                            (l.account_id.name for l in move.line_ids if l.account_id.account_type == 'asset_receivable'),
-                            ''
+                        html += (
+                            f"<tr>"
+                            f"<td>{date}</td>"
+                            f"<td>{group}</td>"
+                            f"<td>{partner}</td>"
+                            f"<td>{'{:,.0f}'.format(opening_balance) if isinstance(opening_balance, (int, float)) else ''}</td>"
+                            f"<td>{'{:,.0f}'.format(amount_dr)}</td>"
+                            f"<td>{'{:,.0f}'.format(amount_cr)}</td>"
+                            f"<td>{'{:,.0f}'.format(balance)}</td>"
+                            f"</tr>"
                         )
-                        payable_account = next(
-                            (l.account_id.name for l in move.line_ids if l.account_id.account_type == 'liability_payable'),
-                            ''
-                        )
+                        opening_balance = ''
 
-                        breakdown.append("{:<25} {:<25} {:<40} {:<40} {:<40} {:>40.2f} {:>40.2f} {:>40.2f} {:>40} {:>40}".format(
-                            move.name or '',
-                            jline.journal_id.code or '',
-                            jline.account_id.code or '',
-                            str(move.invoice_date or ''),
-                            str(move.invoice_date_due or ''),
-                            debit,
-                            credit,
-                            balance,
-                            receivable_account,
-                            payable_account
-                        ))
-
-                    # Full breakdown
-                    breakdown.append("\n Journal Lines Change:")
-                    breakdown.append(" | {:<120}| {:<120} {:>40} {:>40}".format("Account", "Partner", "Debit", "Credit"))
-                    breakdown.append(" | " + "-" * 270 + " | ")
-
-                    for jline in move.line_ids.sorted(key=lambda l: l.account_id.code or ''):
-                        acc = f"{jline.account_id.code} {jline.account_id.name}"
-                        partner_name = jline.partner_id.name or '-'
-                        breakdown.append(" | {:<120}| {:<120} {:>40.2f} {:>40.2f}".format(
-                            acc[:30], partner_name[:30], jline.debit, jline.credit
-                        ))
-                    breakdown.append("  " + "=" * 200)
-
-            rec.partner_journal_breakdown = '\n'.join(breakdown) if breakdown else 'No partner data found.'
-
-            # working.  
+            html += "</table>"
+            rec.partner_journal_breakdown = html
