@@ -9,7 +9,7 @@
           <!-- <field name="account_names"/>
           <field name="partner_names"/> -->
           <!-- <field name="account_breakdown" widget="text"/> -->
-          <field name="partner_journal_breakdown" widget="text"/>
+          <field name="partner_journal_breakdown" widget="html"/>
           <!-- <field name="total_debit"/>
           <field name="total_credit"/> -->
 
