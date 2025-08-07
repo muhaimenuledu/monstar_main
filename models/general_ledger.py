@@ -5,43 +5,50 @@ class GeneralLedger(models.Model):
     _name = 'general.ledger'
     _description = "GL Customization"
 
-    name = fields.Char(string="GL", required=True)
+    # name = fields.Char(string="GL", required=True)
+    date_from = fields.Date(string="Start Date")
+    date_to = fields.Date(string="End Date")
+    account_id = fields.Many2one('account.account', string="Filter by Account")
+
     journal_items = fields.Html(string="Journal Entry Breakdown by Account", compute="_compute_journal_breakdowns", store=False)
 
-    @api.depends()
+    @api.depends('date_from', 'date_to', 'account_id')
     def _compute_journal_breakdowns(self):
         AccountMoveLine = self.env['account.move.line'].sudo()
         Account = self.env['account.account'].sudo()
-        all_accounts = Account.search([], order='code')
-
-        # Define fixed widths for columns for alignment (adjust as needed)
-        widths = {
-            "account": 30,
-            "date": 14,
-            "ref": 22,
-            "label": 28,
-            "group": 28,
-            "counter": 40,
-            "amount_dr": 15,
-            "amount_cr": 15,
-            "balance": 15,
-        }
 
         for rec in self:
+            # Filter accounts
+            accounts = Account.search([('id', '=', rec.account_id.id)]) if rec.account_id else Account.search([], order='code')
+            widths = {
+                "account": 30,
+                "date": 14,
+                "ref": 22,
+                "label": 28,
+                "group": 28,
+                "counter": 40,
+                "amount_dr": 15,
+                "amount_cr": 15,
+                "balance": 15,
+            }
+
             breakdown = []
 
-            for account in all_accounts:
-                move_lines = AccountMoveLine.search([
-                    ('account_id', '=', account.id),
-                    ('move_id.state', '=', 'posted')
-                ], order='date, id')
+            for account in accounts:
+                # Build domain with filters
+                domain = [('account_id', '=', account.id), ('move_id.state', '=', 'posted')]
+                if rec.date_from:
+                    domain.append(('date', '>=', rec.date_from))
+                if rec.date_to:
+                    domain.append(('date', '<=', rec.date_to))
+
+                move_lines = AccountMoveLine.search(domain, order='date, id')
 
                 if not move_lines:
                     continue
 
                 breakdown.append(f"ACCOUNT_HEADER||Account: {account.code} - {account.name}")
 
-                # Header row (fixed width columns)
                 header = "| {account} | {date} | {ref} | {label} | {group} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
                     account="Account".center(widths["account"]),
                     date="Date".center(widths["date"]),
@@ -59,7 +66,6 @@ class GeneralLedger(models.Model):
 
                 for line in move_lines:
                     move = line.move_id
-
                     label = (line.name or move.name or "Unavailable")[:widths["label"]]
                     ref = (move.ref or move.name or "Unavailable")[:widths["ref"]]
                     product_group = (line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unavailable")[:widths["group"]]
@@ -84,7 +90,7 @@ class GeneralLedger(models.Model):
                     )
                     breakdown.append(row)
 
-            # Convert to HTML table like in PartnerLedgerGroup
+            # Convert breakdown to HTML
             html = "<h3>General Ledger - Journal Entry Breakdown by Account</h3>"
             html += "<table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size: 12px; width: 100%;'>"
 
@@ -94,10 +100,9 @@ class GeneralLedger(models.Model):
                     html += f"<tr style='background:#a0c4ff;'><td colspan='9'><strong>{account_name}</strong></td></tr>"
                 elif line.strip().startswith("|"):
                     columns = [col.strip() for col in line.strip('|').split('|')]
-                    tag = "th" if "Date" in columns[1] else "td"  # Header row check based on "Date" in 2nd col
+                    tag = "th" if "Date" in columns[1] else "td"
                     row_style = "background:#f1f1f1;" if tag == "th" else ""
                     html += f"<tr style='{row_style}'>" + "".join([f"<{tag}>{c}</{tag}>" for c in columns]) + "</tr>"
 
             html += "</table>"
-
             rec.journal_items = html
