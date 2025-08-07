@@ -5,18 +5,24 @@ class PartnerLedgerGroup(models.Model):
     _name = 'partner.ledger.group'
     _description = "Partner Ledger Journal Line Breakdown"
 
+    date_from = fields.Date(string="Start Date")
+    date_to = fields.Date(string="End Date")
     partner_journal_breakdown = fields.Html(string="Partner Journal Breakdown", compute="_compute_journal_breakdown", store=False)
 
-    @api.depends()
+    @api.depends('date_from', 'date_to')
     def _compute_journal_breakdown(self):
         AccountMoveLine = self.env['account.move.line'].sudo()
 
-        move_lines = AccountMoveLine.search([
-            ('partner_id', '!=', False),
-            ('move_id.state', '=', 'posted')
-        ], order='date, id')
-
         for rec in self:
+            domain = [('partner_id', '!=', False), ('move_id.state', '=', 'posted')]
+
+            if rec.date_from:
+                domain.append(('date', '>=', rec.date_from))
+            if rec.date_to:
+                domain.append(('date', '<=', rec.date_to))
+
+            move_lines = AccountMoveLine.search(domain, order='date, id')
+
             breakdown = []
             lines_by_partner = {}
 
@@ -24,7 +30,6 @@ class PartnerLedgerGroup(models.Model):
                 partner = line.partner_id
                 lines_by_partner.setdefault(partner, []).append(line)
 
-            # Column widths (fixed)
             widths = {
                 "date": 14,
                 "ref": 22,
@@ -78,7 +83,6 @@ class PartnerLedgerGroup(models.Model):
                     )
                     breakdown.append(row)
 
-            # Render as HTML table
             html = "<h3>Partner Ledger Journal Line Breakdown</h3>"
             html += "<table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size: 12px;'>"
 
