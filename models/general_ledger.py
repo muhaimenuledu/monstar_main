@@ -106,3 +106,10 @@ class GeneralLedger(models.Model):
 
             html += "</table>"
             rec.journal_items = html
+
+    def action_export_xlsx(self):
+        return {
+            'type': 'ir.actions.act_url',
+            'url': '/general_ledger/export_xlsx?record_id=%s' % self.id,
+            'target': 'self',
+        }
