@@ -9,7 +9,7 @@ class PartnerLedgerGroup(models.Model):
     date_from = fields.Date(string="Start Date")
     date_to = fields.Date(string="End Date")
     product_categ_id = fields.Many2one('product.category', string="Product Category")
-    partner_id = fields.Many2one('res.partner', string="Partner")  # New filter field
+    partner_id = fields.Many2one('res.partner', string="Partner")
     partner_journal_breakdown = fields.Html(string="Partner Journal Breakdown", compute="_compute_journal_breakdown", store=False)
 
     @api.depends('date_from', 'date_to', 'product_categ_id', 'partner_id')
@@ -17,31 +17,25 @@ class PartnerLedgerGroup(models.Model):
         AccountMoveLine = self.env['account.move.line'].sudo()
 
         for rec in self:
-            # Prepare main domain
             base_domain = [('partner_id', '!=', False), ('move_id.state', '=', 'posted')]
-
             if rec.product_categ_id:
                 base_domain.append(('product_id.categ_id', '=', rec.product_categ_id.id))
             if rec.partner_id:
                 base_domain.append(('partner_id', '=', rec.partner_id.id))
 
-            # Opening balance domain
             opening_domain = list(base_domain)
             if rec.date_from:
                 opening_domain.append(('date', '<', rec.date_from))
 
-            # Transactions domain
             trx_domain = list(base_domain)
             if rec.date_from:
                 trx_domain.append(('date', '>=', rec.date_from))
             if rec.date_to:
                 trx_domain.append(('date', '<=', rec.date_to))
 
-            # Fetch lines
             opening_lines = AccountMoveLine.search(opening_domain)
             trx_lines = AccountMoveLine.search(trx_domain)
 
-            # Group by Product Group → Partner
             grouped_data = defaultdict(lambda: defaultdict(lambda: {
                 'opening': 0.0, 'debit': 0.0, 'credit': 0.0
             }))
@@ -57,7 +51,6 @@ class PartnerLedgerGroup(models.Model):
                 grouped_data[group][partner]['debit'] += line.debit
                 grouped_data[group][partner]['credit'] += line.credit
 
-            # Render HTML
             base_url = request.httprequest.host_url.rstrip('/')
             full_url = f"{base_url}/odoo/partner-ledger"
 
@@ -66,7 +59,7 @@ class PartnerLedgerGroup(models.Model):
                 "<small style='font-weight:normal;'>"
                 f"[<a href='{full_url}' target='_blank'>Open Original Partner Ledger</a>]"
                 "</small></h3>"
-                    )
+            )
 
             for group, partners in grouped_data.items():
                 html += f"<h4 style='background:#add8e6;padding:4px;'>{group}</h4>"
@@ -103,3 +96,10 @@ class PartnerLedgerGroup(models.Model):
                 html += "</table><br>"
 
             rec.partner_journal_breakdown = html
+
+    def action_export_xlsx(self):
+        return {
+            'type': 'ir.actions.act_url',
+            'url': '/partner_ledger/export_xlsx?record_id=%s' % self.id,
+            'target': 'self',
+        }
