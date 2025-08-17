@@ -7,9 +7,10 @@ class PartnerLedgerGroup(models.Model):
 
     date_from = fields.Date(string="Start Date")
     date_to = fields.Date(string="End Date")
+    partner_id = fields.Many2one("res.partner", string="Partner")  # NEW FIELD
     partner_journal_breakdown = fields.Html(string="Partner Journal Breakdown", compute="_compute_journal_breakdown", store=False)
 
-    @api.depends('date_from', 'date_to')
+    @api.depends('date_from', 'date_to', 'partner_id')
     def _compute_journal_breakdown(self):
         AccountMoveLine = self.env['account.move.line'].sudo()
 
@@ -20,6 +21,8 @@ class PartnerLedgerGroup(models.Model):
                 domain.append(('date', '>=', rec.date_from))
             if rec.date_to:
                 domain.append(('date', '<=', rec.date_to))
+            if rec.partner_id:  # NEW CONDITION
+                domain.append(('partner_id', '=', rec.partner_id.id))
 
             move_lines = AccountMoveLine.search(domain, order='date, id')
 
