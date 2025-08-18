@@ -5,4 +5,3 @@ access_stock_mles,access.stock.mles,model_stock_mles,base.group_user,1,1,1,1
 access_stock_summary_wizard,access.stock.summary.wizard,model_stock_summary_wizard,,1,1,1,1
 access_partner_ledger,access.partner.ledger,model_partner_ledger,base.group_user,1,1,1,1
 access_partner_ledger_group,access.partner.ledger.group,model_partner_ledger_group,base.group_user,1,1,1,1
-access_group_party,access.group.party,model_group_party,base.group_user,1,1,1,1
