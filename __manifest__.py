@@ -25,8 +25,8 @@
         'views/partner_ledger_group_view.xml',
         'views/stock_report_view.xml',
         'views/stock_summary_wizard_views.xml',
-        'views/group.xml',
-        'views/res_partner_views.xml',
+        # 'views/group.xml',
+        # 'views/res_partner_views.xml',
         
         
         'views/menu.xml',
