@@ -1,0 +1,25 @@
+<odoo>
+    <!-- Add Vendor Group field in Vendor Form -->
+    <record id="view_partner_form_inherit_vendor_group" model="ir.ui.view">
+        <field name="name">res.partner.form.inherit.vendor.group</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group/group" position="inside">
+                <field name="vendor_group"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Add Vendor Group field in Vendor List -->
+<record id="view_partner_list_inherit_vendor_group" model="ir.ui.view">
+    <field name="name">res.partner.list.inherit.vendor.group</field>
+    <field name="model">res.partner</field>
+    <field name="inherit_id" ref="base.view_partner_tree"/>
+    <field name="arch" type="xml">
+        <xpath expr="//list/field[@name='company_id']" position="after">
+            <field name="vendor_group"/>
+        </xpath>
+    </field>
+</record>
+</odoo>
