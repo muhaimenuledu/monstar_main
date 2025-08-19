@@ -20,23 +20,29 @@ class GeneralLedger(models.Model):
         AccountMoveLine = self.env['account.move.line'].sudo()
 
         for rec in self:
-            domain = [
+            # Domain for journal items (only AR & AP)
+            line_domain = [
                 ('partner_id', '!=', False),
                 ('move_id.state', '=', 'posted'),
                 ('account_id.account_type', 'in', ['asset_receivable', 'liability_payable']),
             ]
             if rec.partner_id:
-                domain.append(('partner_id', '=', rec.partner_id.id))
+                line_domain.append(('partner_id', '=', rec.partner_id.id))
             if rec.vendor_group:
-                domain.append(('partner_id.vendor_group', '=', rec.vendor_group))
+                line_domain.append(('partner_id.vendor_group', '=', rec.vendor_group))
             if rec.date_from:
-                domain.append(('date', '>=', rec.date_from))
+                line_domain.append(('date', '>=', rec.date_from))
             if rec.date_to:
-                domain.append(('date', '<=', rec.date_to))
+                line_domain.append(('date', '<=', rec.date_to))
 
-            partners = self.env['res.partner'].browse(
-                AccountMoveLine.search(domain).mapped('partner_id').ids
-            )
+            # All partners (customers or vendors) - no company filter
+            partners = self.env['res.partner'].search([
+                '|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0)
+            ])
+            if rec.partner_id:
+                partners = partners.filtered(lambda p: p.id == rec.partner_id.id)
+            if rec.vendor_group:
+                partners = partners.filtered(lambda p: p.vendor_group == rec.vendor_group)
 
             html = "<h3>Partner Ledger Report (Receivables - Payables)</h3>"
             if rec.partner_id:
@@ -46,7 +52,7 @@ class GeneralLedger(models.Model):
 
             for partner in partners:
                 partner_lines = AccountMoveLine.search(
-                    domain + [('partner_id', '=', partner.id)], order='date,id'
+                    line_domain + [('partner_id', '=', partner.id)], order='date,id'
                 )
 
                 html += f"<h4>Partner: {partner.name}</h4>"
@@ -89,7 +95,6 @@ class GeneralLedger(models.Model):
                     html += f"<td>{running_balance:,.2f}</td>"
                     html += "</tr>"
 
-                # Totals
                 final_balance = running_receivable - running_payable
                 html += (
                     f"<tr style='font-weight:bold; background:#eee;'>"
@@ -102,3 +107,5 @@ class GeneralLedger(models.Model):
                 html += "</table><br>"
 
             rec.partner_journal_breakdown = html
+
+#all partner
