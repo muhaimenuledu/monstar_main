@@ -8,19 +8,38 @@ class GeneralLedger(models.Model):
     date_from = fields.Date(string="Start Date")
     date_to = fields.Date(string="End Date")
     partner_id = fields.Many2one('res.partner', string="Partner")
-    vendor_group = fields.Char(string="Vendor Group")
+
+    vendor_group = fields.Selection(
+        selection=lambda self: self._get_vendor_groups(),
+        string="Vendor Group",
+        help="Filter partners by vendor group"
+    )
+
     partner_journal_breakdown = fields.Html(
         string="Partner Ledger",
         compute="_compute_journal_breakdown",
         store=False
     )
 
+    @api.model
+    def _get_vendor_groups(self):
+        """Fetch unique vendor group values from partners for dropdown"""
+        groups = self.env['res.partner'].sudo().search_read(
+            [('vendor_group', '!=', False)], ['vendor_group']
+        )
+        return [(g['vendor_group'], g['vendor_group']) for g in groups]
+
     @api.depends('date_from', 'date_to', 'partner_id', 'vendor_group')
     def _compute_journal_breakdown(self):
+        """Compute partner ledger HTML"""
+        self._build_html(company_id=None)
+
+    def _build_html(self, company_id=None):
+        """Build ledger HTML, optionally restricted to a company"""
         AccountMoveLine = self.env['account.move.line'].sudo()
 
         for rec in self:
-            # Domain for journal items (only AR & AP)
+            # Journal lines domain
             line_domain = [
                 ('partner_id', '!=', False),
                 ('move_id.state', '=', 'posted'),
@@ -34,26 +53,38 @@ class GeneralLedger(models.Model):
                 line_domain.append(('date', '>=', rec.date_from))
             if rec.date_to:
                 line_domain.append(('date', '<=', rec.date_to))
+            if company_id:
+                line_domain.append(('company_id', '=', company_id))
 
-            # All partners (customers or vendors) - no company filter
-            partners = self.env['res.partner'].search([
-                '|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0)
-            ])
+            # Partners
+            partner_domain = ['|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0)]
+            if company_id:
+                partner_domain.append(('company_id', '=', company_id))
+            partners = self.env['res.partner'].search(partner_domain)
+
             if rec.partner_id:
                 partners = partners.filtered(lambda p: p.id == rec.partner_id.id)
             if rec.vendor_group:
                 partners = partners.filtered(lambda p: p.vendor_group == rec.vendor_group)
 
-            html = "<h3>Partner Ledger Report (Receivables - Payables)</h3>"
+            # Build HTML
+            html = "<h3>Partner Ledger Report</h3>"
+            if company_id:
+                html += f"<p><strong>Company Filter:</strong> {self.env['res.company'].browse(company_id).name}</p>"
             if rec.partner_id:
                 html += f"<p><strong>Partner Filter:</strong> {rec.partner_id.name}</p>"
             if rec.vendor_group:
                 html += f"<p><strong>Vendor Group Filter:</strong> {rec.vendor_group}</p>"
 
+            if not partners:
+                html += "<p><em>No partners found for this company.</em></p>"
+
             for partner in partners:
                 partner_lines = AccountMoveLine.search(
                     line_domain + [('partner_id', '=', partner.id)], order='date,id'
                 )
+                if not partner_lines:
+                    continue
 
                 html += f"<h4>Partner: {partner.name}</h4>"
                 html += "<table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size:12px; width:100%;'>"
@@ -70,9 +101,9 @@ class GeneralLedger(models.Model):
                 total_credit = 0.0
 
                 for line in partner_lines:
-                    account_type = line.account_id.account_type
                     debit_val = line.debit
                     credit_val = line.credit
+                    account_type = line.account_id.account_type
 
                     if account_type == 'asset_receivable':
                         running_receivable += (debit_val - credit_val)
@@ -81,8 +112,7 @@ class GeneralLedger(models.Model):
 
                     total_debit += debit_val
                     total_credit += credit_val
-
-                    running_balance = running_receivable - running_payable  # AR - AP
+                    running_balance = running_receivable - running_payable
 
                     html += "<tr>"
                     html += f"<td>{line.date}</td>"
@@ -108,4 +138,23 @@ class GeneralLedger(models.Model):
 
             rec.partner_journal_breakdown = html
 
-#all partner
+    def action_refresh_current_company(self):
+        """Refresh ledger for current company only, cleaning previous data"""
+        for rec in self:
+            # Clear old HTML
+            rec.partner_journal_breakdown = False
+
+            # Rebuild HTML for current company only
+            rec._build_html(company_id=self.env.company.id)
+
+        return True
+# company refresh & group dropdown
+
+    def action_export_xlsx(self):
+        """Return a URL action to download XLSX for this record"""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_url',
+            'url': f'/group_party/export_xlsx?record_id={self.id}',
+            'target': 'self',
+        }
