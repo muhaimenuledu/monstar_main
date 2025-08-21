@@ -25,11 +25,16 @@
         <field name="model">group.party</field>
         <field name="arch" type="xml">
             <form string="Partner Ledger Group">
-            <header>
+                <header>
                     <button name="action_export_xlsx"
                             type="object"
-                            string="Export XLSX"
+                            string="Export Partner Detail XLSX "
                             class="btn-primary"/>
+                    <!-- New Button for Partner Totals Only -->
+                    <button name="action_export_totals_xlsx"
+                            type="object"
+                            string="Export Partner Totals Only XLSX"
+                            class="btn-secondary"/>
                 </header>
                 <sheet>
                     <group>
@@ -39,11 +44,11 @@
                         <field name="vendor_group"/>
                     </group>
                     <group>
-                <button name="action_refresh_current_company"
-                        type="object"
-                        string="🔄 Refresh (Current Company)"
-                        class="btn-primary"/>
-            </group>
+                        <button name="action_refresh_current_company"
+                                type="object"
+                                string="🔄 Refresh Company"
+                                class="btn-primary"/>
+                    </group>
                     <group>
                         <field name="partner_journal_breakdown" readonly="1" nolabel="1"/>
                     </group>
