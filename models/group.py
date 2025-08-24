@@ -1,5 +1,6 @@
 from odoo import api, models, fields
 
+
 class GeneralLedger(models.Model):
     _name = 'group.party'
     _description = "Partner Ledger Custom HTML Report"
@@ -59,16 +60,18 @@ class GeneralLedger(models.Model):
             if rec.vendor_group:
                 partners = partners.filtered(lambda p: p.vendor_group == rec.vendor_group)
 
-            html = "<h3>Partner Ledger Report</h3>"
-            if company_id:
-                html += f"<p><strong>Company Filter:</strong> {self.env['res.company'].browse(company_id).name}</p>"
-            if rec.partner_id:
-                html += f"<p><strong>Partner Filter:</strong> {rec.partner_id.name}</p>"
-            if rec.vendor_group:
-                html += f"<p><strong>Vendor Group Filter:</strong> {rec.vendor_group}</p>"
-
-            if not partners:
-                html += "<p><em>No partners found for this company.</em></p>"
+            # Start HTML
+            html = """
+            <h3>Partner Ledger Report</h3>
+            <table border='1' cellpadding='3' cellspacing='0'
+                   style='border-collapse:collapse; font-size:12px; width:100%; margin-bottom:10px;'>
+                <tr style='background:#f0f0f0; font-weight:bold;'>
+                    <th style='text-align:left;'>Partner</th>
+                    <th style='text-align:right;'>Total Debit</th>
+                    <th style='text-align:right;'>Total Credit</th>
+                    <th style='text-align:right;'>Balance</th>
+                </tr>
+            """
 
             for partner in partners:
                 partner_lines = AccountMoveLine.search(
@@ -79,31 +82,32 @@ class GeneralLedger(models.Model):
 
                 total_debit = sum(l.debit for l in partner_lines)
                 total_credit = sum(l.credit for l in partner_lines)
-                running_receivable = sum(l.debit - l.credit for l in partner_lines if l.account_id.account_type == 'asset_receivable')
-                running_payable = sum(l.credit - l.debit for l in partner_lines if l.account_id.account_type == 'liability_payable')
+                running_receivable = sum(
+                    l.debit - l.credit for l in partner_lines if l.account_id.account_type == 'asset_receivable'
+                )
+                running_payable = sum(
+                    l.credit - l.debit for l in partner_lines if l.account_id.account_type == 'liability_payable'
+                )
                 final_balance = running_receivable - running_payable
 
-                # Partner totals outside details
+                # Summary row with collapsible details (only one arrow now)
                 html += f"""
-                <table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size:12px; width:100%; margin-bottom:2px;'>
-                    <tr style='background:#f0f0f0; font-weight:bold;'>
-                        <td>Partner: {partner.name}</td>
-                        <td>Total Debit: {total_debit:,.2f}</td>
-                        <td>Total Credit: {total_credit:,.2f}</td>
-                        <td>Balance: {final_balance:,.2f}</td>
-                    </tr>
-                </table>
+                <tr>
+                    <td style='text-align:left;'>
+                        <details>
+                            <summary style='cursor:pointer;'>{partner.name}</summary>
+                            <div style='margin-top:5px;'>
+                                <table border='1' cellpadding='3' cellspacing='0'
+                                       style='border-collapse:collapse; font-size:11px; width:100%; margin-top:5px;'>
+                                    <tr style='background:#ddd; font-weight:bold;'>
+                                        <th>Date</th><th>Journal</th><th>Account</th>
+                                        <th>Reference</th><th>Due Date</th>
+                                        <th style='text-align:right;'>Debit</th>
+                                        <th style='text-align:right;'>Credit</th>
+                                        <th style='text-align:right;'>Balance (AR - AP)</th>
+                                    </tr>
                 """
 
-                # Collapsible details
-                html += f"<details style='margin-bottom:10px;'><summary style='font-weight:bold; font-size:13px; cursor:pointer;'>Show/Hide Details</summary>"
-                html += """
-                <table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size:12px; width:100%; margin-top:5px;'>
-                    <tr style='background:#ddd;'>
-                        <th>Date</th><th>Journal</th><th>Account</th><th>Reference</th>
-                        <th>Due Date</th><th>Debit</th><th>Credit</th><th>Balance (AR - AP)</th>
-                    </tr>
-                """
                 running_receivable = 0.0
                 running_payable = 0.0
                 for line in partner_lines:
@@ -115,20 +119,31 @@ class GeneralLedger(models.Model):
                     elif account_type == 'liability_payable':
                         running_payable += (credit_val - debit_val)
                     running_balance = running_receivable - running_payable
-                    html += f"""
-                        <tr>
-                            <td>{line.date}</td>
-                            <td>{line.move_id.journal_id.code}</td>
-                            <td>{line.account_id.code} - {line.account_id.name}</td>
-                            <td>{line.move_id.name or ''}</td>
-                            <td>{line.date_maturity or ''}</td>
-                            <td>{debit_val:,.2f}</td>
-                            <td>{credit_val:,.2f}</td>
-                            <td>{running_balance:,.2f}</td>
-                        </tr>
-                    """
-                html += "</table></details><br>"
 
+                    html += f"""
+                                    <tr>
+                                        <td>{line.date}</td>
+                                        <td>{line.move_id.journal_id.code}</td>
+                                        <td>{line.account_id.code} - {line.account_id.name}</td>
+                                        <td>{line.move_id.name or ''}</td>
+                                        <td>{line.date_maturity or ''}</td>
+                                        <td style='text-align:right;'>{debit_val:,.2f}</td>
+                                        <td style='text-align:right;'>{credit_val:,.2f}</td>
+                                        <td style='text-align:right;'>{running_balance:,.2f}</td>
+                                    </tr>
+                    """
+                html += """
+                                </table>
+                            </div>
+                        </details>
+                    </td>
+                    <td style='text-align:right;'>{:,.2f}</td>
+                    <td style='text-align:right;'>{:,.2f}</td>
+                    <td style='text-align:right;'>{:,.2f}</td>
+                </tr>
+                """.format(total_debit, total_credit, final_balance)
+
+            html += "</table>"
             rec.partner_journal_breakdown = html
 
     def action_refresh_current_company(self):
