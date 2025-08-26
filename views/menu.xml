@@ -29,7 +29,6 @@
                 <!-- stock summary wizard -->
                 <menuitem id="menu_stock_summary_wizard" name="Stock Summary" parent="monstar_main.menu_child" action="action_stock_summary_wizard" sequence="40"/>
                 <menuitem id="menu_group_party" name="Party Group Summary" parent="monstar_main.menu_child" action="action_group_party" sequence="50"/>
-                <menuitem id="menu_beta_groups" name="Vendor Groups" parent="monstar_main.menu_child" action="action_beta_mode" sequence="60"/>
 
         </data>
 
