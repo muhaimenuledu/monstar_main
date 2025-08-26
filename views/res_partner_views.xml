@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="base.view_partner_form"/>
         <field name="arch" type="xml">
             <xpath expr="//sheet/group/group" position="inside">
-                <field name="vendor_group" widget="selection"/>
+                <field name="vendor_group"/>
             </xpath>
         </field>
     </record>
