@@ -27,7 +27,6 @@
         'views/stock_summary_wizard_views.xml',
         'views/group.xml',
         'views/res_partner_views.xml',
-        'views/beta_view.xml',
 
         
         'views/menu.xml',
