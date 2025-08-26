@@ -8,3 +8,4 @@ from . import partner_ledger
 from . import partner_ledger_group
 from . import group
 from . import res_partner
+from . import beta
