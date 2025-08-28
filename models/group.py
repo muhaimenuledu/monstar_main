@@ -71,28 +71,43 @@ class GeneralLedger(models.Model):
                    style='border-collapse:collapse; font-size:12px; width:100%; margin-bottom:10px;'>
                 <tr style='background:#f0f0f0; font-weight:bold;'>
                     <th style='text-align:left;'>Partner</th>
+                    <th style='text-align:right;'>Opening Balance</th>
                     <th style='text-align:right;'>Total Debit</th>
                     <th style='text-align:right;'>Total Credit</th>
-                    <th style='text-align:right;'>Balance</th>
+                    <th style='text-align:right;'>Closing Balance</th>
                 </tr>
             """
 
             for partner in partners:
+                # Opening balance (all lines BEFORE date_from)
+                opening_domain = [
+                    ('partner_id', '=', partner.id),
+                    ('move_id.state', '=', 'posted'),
+                    ('account_id.account_type', 'in', ['asset_receivable', 'liability_payable']),
+                ]
+                if rec.date_from:
+                    opening_domain.append(('date', '<', rec.date_from))
+                if company_id:
+                    opening_domain.append(('company_id', '=', company_id))
+
+                opening_lines = AccountMoveLine.search(opening_domain)
+                opening_receivable = sum(l.debit - l.credit for l in opening_lines if l.account_id.account_type == 'asset_receivable')
+                opening_payable = sum(l.credit - l.debit for l in opening_lines if l.account_id.account_type == 'liability_payable')
+                opening_balance = opening_receivable - opening_payable
+
+                # Period lines (between date_from and date_to)
                 partner_lines = AccountMoveLine.search(
                     line_domain + [('partner_id', '=', partner.id)], order='date,id'
                 )
-                if not partner_lines:
+                if not partner_lines and not opening_balance:
                     continue
 
                 total_debit = sum(l.debit for l in partner_lines)
                 total_credit = sum(l.credit for l in partner_lines)
-                running_receivable = sum(
-                    l.debit - l.credit for l in partner_lines if l.account_id.account_type == 'asset_receivable'
-                )
-                running_payable = sum(
-                    l.credit - l.debit for l in partner_lines if l.account_id.account_type == 'liability_payable'
-                )
-                final_balance = running_receivable - running_payable
+                period_balance = sum(l.debit - l.credit for l in partner_lines if l.account_id.account_type == 'asset_receivable') \
+                               - sum(l.credit - l.debit for l in partner_lines if l.account_id.account_type == 'liability_payable')
+
+                closing_balance = opening_balance + period_balance
 
                 # Summary row with collapsible details
                 html += f"""
@@ -108,21 +123,26 @@ class GeneralLedger(models.Model):
                                         <th>Reference</th><th>Due Date</th>
                                         <th style='text-align:right;'>Debit</th>
                                         <th style='text-align:right;'>Credit</th>
-                                        <th style='text-align:right;'>Balance (AR - AP)</th>
+                                        <th style='text-align:right;'>Running Balance</th>
                                     </tr>
                 """
 
-                running_receivable = 0.0
-                running_payable = 0.0
+                running_balance = opening_balance
+                # Show opening balance row
+                html += f"""
+                                    <tr style="font-style:italic; background:#f9f9f9;">
+                                        <td colspan="7">Opening Balance</td>
+                                        <td style='text-align:right;'>{opening_balance:,.2f}</td>
+                                    </tr>
+                """
+
                 for line in partner_lines:
                     debit_val = line.debit
                     credit_val = line.credit
-                    account_type = line.account_id.account_type
-                    if account_type == 'asset_receivable':
-                        running_receivable += (debit_val - credit_val)
-                    elif account_type == 'liability_payable':
-                        running_payable += (credit_val - debit_val)
-                    running_balance = running_receivable - running_payable
+                    if line.account_id.account_type == 'asset_receivable':
+                        running_balance += (debit_val - credit_val)
+                    elif line.account_id.account_type == 'liability_payable':
+                        running_balance += (credit_val - debit_val)
 
                     html += f"""
                                     <tr>
@@ -136,6 +156,7 @@ class GeneralLedger(models.Model):
                                         <td style='text-align:right;'>{running_balance:,.2f}</td>
                                     </tr>
                     """
+
                 html += """
                                 </table>
                             </div>
@@ -144,8 +165,9 @@ class GeneralLedger(models.Model):
                     <td style='text-align:right;'>{:,.2f}</td>
                     <td style='text-align:right;'>{:,.2f}</td>
                     <td style='text-align:right;'>{:,.2f}</td>
+                    <td style='text-align:right;'>{:,.2f}</td>
                 </tr>
-                """.format(total_debit, total_credit, final_balance)
+                """.format(opening_balance, total_debit, total_credit, closing_balance)
 
             html += "</table>"
             rec.partner_journal_breakdown = html
