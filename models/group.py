@@ -23,10 +23,14 @@ class GeneralLedger(models.Model):
 
     @api.model
     def _get_vendor_groups(self):
-        groups = self.env['res.partner'].sudo().search_read(
-            [('vendor_group', '!=', False)], ['vendor_group']
-        )
-        return [(g['vendor_group'], g['vendor_group']) for g in groups]
+        self.env.cr.execute("""
+            SELECT DISTINCT vendor_group
+            FROM res_partner
+            WHERE vendor_group IS NOT NULL
+            ORDER BY vendor_group
+        """)
+        results = self.env.cr.fetchall()
+        return [(row[0], row[0]) for row in results if row[0]]
 
     @api.depends('date_from', 'date_to', 'partner_id', 'vendor_group')
     def _compute_journal_breakdown(self):
@@ -90,7 +94,7 @@ class GeneralLedger(models.Model):
                 )
                 final_balance = running_receivable - running_payable
 
-                # Summary row with collapsible details (only one arrow now)
+                # Summary row with collapsible details
                 html += f"""
                 <tr>
                     <td style='text-align:left;'>
