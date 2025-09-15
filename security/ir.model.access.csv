@@ -7,3 +7,4 @@ access_partner_ledger,access.partner.ledger,model_partner_ledger,base.group_user
 access_partner_ledger_group,access.partner.ledger.group,model_partner_ledger_group,base.group_user,1,1,1,1
 access_group_party,access.group.party,model_group_party,base.group_user,1,1,1,1
 access_beta_mode,access.beta.mode,model_beta_mode,base.group_user,1,1,1,1
+access_party_stock_summary,access.party.stock.summary,model_party_stock_summary,base.group_user,1,1,1,1
