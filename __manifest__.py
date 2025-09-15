@@ -28,6 +28,8 @@
         'views/group.xml',
         'views/res_partner_views.xml',
         'views/beta_view.xml',
+        'views/party_stock_view.xml',
+
 
         
         'views/menu.xml',
