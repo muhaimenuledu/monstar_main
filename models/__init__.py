@@ -9,3 +9,4 @@ from . import partner_ledger_group
 from . import group
 from . import res_partner
 from . import beta
+from . import party_stock_summary
