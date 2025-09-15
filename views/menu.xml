@@ -1,35 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-        <data>
-                <!-- Top menu item -->
+    <data>
+        <!-- Top menu item -->
+        <menuitem id="monstar_main.menu_root" name="Monstar Main" />
 
-                <menuitem id="monstar_main.menu_root" name="Monstar Main" />
+        <!-- Sub menu -->
+        <menuitem id="monstar_main.menu_child" name="Report" parent="monstar_main.menu_root"/>
 
-                <!-- menu categories -->
+        <!-- Existing report menuitems -->
+        <menuitem id="menu_partner_ledger" name="Partner Ledger" parent="monstar_main.menu_child" action="action_partner_ledger" sequence="10"/>
+        <menuitem id="menu_partner_ledger_group" name="Partner Ledger Group" parent="monstar_main.menu_child" action="action_partner_ledger_group" sequence="20"/>
+        <menuitem id="menu_general_ledger" name="General Ledger" parent="monstar_main.menu_child" action="action_general_ledger" sequence="30"/>
+        <menuitem id="menu_stock_summary_wizard" name="Stock Summary" parent="monstar_main.menu_child" action="action_stock_summary_wizard" sequence="40"/>
+        <menuitem id="menu_group_party" name="Party Group Summary" parent="monstar_main.menu_child" action="action_group_party" sequence="50"/>
+        <menuitem id="menu_beta_groups" name="Vendor Groups" parent="monstar_main.menu_child" action="action_beta_mode" sequence="60"/>
 
-                <!-- <menuitem name="Stock Summary" id="monstar_main.menu_1" parent="monstar_main.menu_root" action="monstar_main.action_window"/> -->
-                <menuitem id="monstar_main.menu_child" name="Report" parent="monstar_main.menu_root"/>
+        <!-- NEW: Party Stock Summary -->
+        <menuitem id="menu_party_stock_summary" name="Party Stock Summary" parent="monstar_main.menu_child" action="action_party_stock_summary" sequence="70"/>
 
-                <!-- actions -->
-
-                <!-- <menuitem name="List" id="monstar_main.menu_1_list" parent="monstar_main.menu_1"/> -->
-
-                <!-- <menuitem name="Partners" id="monstar_main" parent="monstar_main.menu_2"
-                        action="monstar_main.action_window2"/> -->
-                <!-- <menuitem name="General Ledger" id="monstar_main_new" parent="monstar_main.menu_2"
-                        action="monstar_main.action_window3"/> -->
-                <!-- <menuitem name="Partner Ledger" id="monstar_main_new_one" parent="monstar_main.menu_2"
-                        action="monstar_main.action_window4"/> -->
-
-
-                <menuitem id="menu_partner_ledger" name ="Partner Ledger" parent="monstar_main.menu_child" action="action_partner_ledger" sequence="10"/>
-                <menuitem id="menu_partner_ledger_group" name ="Partner Ledger Group" parent="monstar_main.menu_child" action="action_partner_ledger_group" sequence="20"/>
-
-                <menuitem id="menu_general_ledger" name ="General Ledger" parent="monstar_main.menu_child" action="action_general_ledger" sequence="30"/>
-                <!-- stock summary wizard -->
-                <menuitem id="menu_stock_summary_wizard" name="Stock Summary" parent="monstar_main.menu_child" action="action_stock_summary_wizard" sequence="40"/>
-                <menuitem id="menu_group_party" name="Party Group Summary" parent="monstar_main.menu_child" action="action_group_party" sequence="50"/>
-                <menuitem id="menu_beta_groups" name="Vendor Groups" parent="monstar_main.menu_child" action="action_beta_mode" sequence="60"/>
-        </data>
-
+    </data>
 </odoo>
