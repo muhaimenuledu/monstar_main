@@ -88,6 +88,12 @@ class PartyStockSummary(models.Model):
             # Render HTML row by row
             html_sections = ""
             for partner, products in summary.items():
+                # Initialize totals for this partner
+                partner_bought_qty_total = 0.0
+                partner_bought_price_total = 0.0
+                partner_sold_qty_total = 0.0
+                partner_sold_price_total = 0.0
+                
                 html_sections += (
                     "<div style='margin: 10px 0; padding: 10px; background: #f5f5f5; "
                     "border: 1px solid #ccc; border-radius: 5px;'>"
@@ -110,6 +116,12 @@ class PartyStockSummary(models.Model):
                     "</tr>"
                 )
                 for product, vals in products.items():
+                    # Add to partner totals
+                    partner_bought_qty_total += vals['bought_qty']
+                    partner_bought_price_total += vals['bought_price']
+                    partner_sold_qty_total += vals['sold_qty']
+                    partner_sold_price_total += vals['sold_price']
+                    
                     html_sections += (
                         "<tr>"
                         f"<td>{product.display_name}</td>"
@@ -120,6 +132,18 @@ class PartyStockSummary(models.Model):
                         f"<td>{vals['sold_price']:.2f}</td>"
                         "</tr>"
                     )
+                
+                # Add summary row for this partner
+                html_sections += (
+                    "<tr style='background:#d1ecf1; font-weight: bold;'>"
+                    "<td colspan='2' style='text-align: right;'>Total:</td>"
+                    f"<td>{partner_bought_qty_total:.2f}</td>"
+                    f"<td>{partner_bought_price_total:.2f}</td>"
+                    f"<td>{partner_sold_qty_total:.2f}</td>"
+                    f"<td>{partner_sold_price_total:.2f}</td>"
+                    "</tr>"
+                )
+                
                 html_sections += "</table></div>"
 
             rec.stock_summary_html = (
