@@ -3,6 +3,7 @@ from odoo.http import request
 import io
 import xlsxwriter
 
+
 class PartnerLedgerGroupExportController(http.Controller):
 
     @http.route('/partner_ledger_group/export_xlsx', type='http', auth='user')
@@ -17,6 +18,8 @@ class PartnerLedgerGroupExportController(http.Controller):
 
         bold = workbook.add_format({'bold': True})
         money = workbook.add_format({'num_format': '#,##0.00'})
+        header_bg = workbook.add_format({'bold': True, 'bg_color': '#D9E1F2'})
+        summary_bg = workbook.add_format({'bold': True, 'bg_color': '#C6EFCE', 'num_format': '#,##0.00'})
 
         # Column headers
         row = 0
@@ -24,21 +27,24 @@ class PartnerLedgerGroupExportController(http.Controller):
         sheet.write(row, 1, "Date", bold)
         sheet.write(row, 2, "Label", bold)
         sheet.write(row, 3, "Group", bold)
-        sheet.write(row, 4, "Unit Price", bold)  # New Column
+        sheet.write(row, 4, "Unit Price", bold)
         sheet.write(row, 5, "Account (DR)", bold)
         sheet.write(row, 6, "Account (CR)", bold)
         sheet.write(row, 7, "Amount Dr.", bold)
         sheet.write(row, 8, "Amount Cr.", bold)
-        sheet.write(row, 9, "Balance", bold)
         row += 1
 
         AccountMoveLine = request.env['account.move.line'].sudo()
-        domain = [('partner_id', '!=', False), ('move_id.state', '=', 'posted')]
+        AccountAccount = request.env['account.account'].sudo()
 
+        # Build domain
+        domain = [('partner_id', '!=', False), ('move_id.state', '=', 'posted')]
         if record.date_from:
             domain.append(('date', '>=', record.date_from))
         if record.date_to:
             domain.append(('date', '<=', record.date_to))
+        if record.partner_id:
+            domain.append(('partner_id', '=', record.partner_id.id))
 
         move_lines = AccountMoveLine.search(domain, order='date, id')
 
@@ -49,11 +55,10 @@ class PartnerLedgerGroupExportController(http.Controller):
 
         # Write each partner section
         for partner, lines in lines_by_partner.items():
-            # Partner name as a header row
-            sheet.write(row, 0, partner.name, bold)
+            # Partner name header row
+            sheet.write(row, 0, partner.name, header_bg)
             row += 1
 
-            balance = 0.0
             for line in lines:
                 move = line.move_id
                 label = line.name or move.name or "Unavailable"
@@ -62,32 +67,48 @@ class PartnerLedgerGroupExportController(http.Controller):
                 account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else ""
                 amount_dr = line.debit or 0.0
                 amount_cr = line.credit or 0.0
-                balance += amount_dr - amount_cr
 
                 # Compute unit price
-                if hasattr(line, 'price_unit') and line.price_unit:
+                if getattr(line, 'price_unit', False):
                     unit_price = line.price_unit
                 elif getattr(line, 'quantity', 0) and (amount_dr or amount_cr):
-                    # try calculating from total / qty
                     total = amount_dr or amount_cr
                     unit_price = total / line.quantity if line.quantity else 0.0
                 else:
                     unit_price = 0.0
 
-                # Write data row
+                # Write row
                 sheet.write(row, 0, "")  # empty partner cell
                 sheet.write(row, 1, str(line.date))
                 sheet.write(row, 2, label)
                 sheet.write(row, 3, product_group)
-                sheet.write(row, 4, unit_price, money)  # New column
+                sheet.write(row, 4, unit_price, money)
                 sheet.write(row, 5, account_dr)
                 sheet.write(row, 6, account_cr)
                 sheet.write(row, 7, amount_dr, money)
                 sheet.write(row, 8, amount_cr, money)
-                sheet.write(row, 9, balance, money)
                 row += 1
 
-            row += 1  # blank line after each partner
+            # === Calculate Current Balance for Partner ===
+            payable_receivable_accounts = AccountAccount.search([
+                ('account_type', 'in', ['asset_receivable', 'liability_payable'])
+            ])
+            partner_lines = AccountMoveLine.read_group(
+                domain=[('partner_id', '=', partner.id),
+                        ('account_id', 'in', payable_receivable_accounts.ids),
+                        ('move_id.state', '=', 'posted')],
+                fields=['debit', 'credit'],
+                groupby=[]
+            )
+            balance = 0.0
+            if partner_lines:
+                totals = partner_lines[0]
+                balance = (totals.get('debit', 0.0) - totals.get('credit', 0.0))
+
+            # Write summary row
+            sheet.write(row, 0, f"Balance for {partner.name}", bold)
+            sheet.write(row, 8, balance, summary_bg)
+            row += 2  # leave a blank line
 
         workbook.close()
         output.seek(0)
