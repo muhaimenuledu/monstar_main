@@ -9,7 +9,10 @@ class PartnerLedgerCollapseXlsxController(http.Controller):
 
     @http.route('/group_party/export_totals_xlsx', type='http', auth='user')
     def export_totals_xlsx(self, record_id):
-        record = request.env['group.party'].browse(int(record_id))
+        record = request.env['group.party'].sudo().browse(int(record_id))
+        if not record:
+            return request.not_found()
+
         output = io.BytesIO()
         workbook = xlsxwriter.Workbook(output, {'in_memory': True})
         sheet = workbook.add_worksheet('Partner Totals')
@@ -43,10 +46,17 @@ class PartnerLedgerCollapseXlsxController(http.Controller):
             ['|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0)]
         )
 
+        # Apply filters exactly like in the model
         if record.partner_id:
             partners = partners.filtered(lambda p: p.id == record.partner_id.id)
         if record.vendor_group:
             partners = partners.filtered(lambda p: p.vendor_group == record.vendor_group)
+
+        # Detect account type field (compatibility)
+        acct_model = request.env['account.account']
+        atype_field = 'account_type' if 'account_type' in acct_model._fields else 'internal_type'
+        AR_VALUE = 'asset_receivable' if atype_field == 'account_type' else 'receivable'
+        AP_VALUE = 'liability_payable' if atype_field == 'account_type' else 'payable'
 
         # Totals accumulators
         total_opening_balance = 0.0
@@ -59,7 +69,7 @@ class PartnerLedgerCollapseXlsxController(http.Controller):
             line_domain = [
                 ('partner_id', '=', partner.id),
                 ('move_id.state', '=', 'posted'),
-                ('account_id.account_type', 'in', ['asset_receivable', 'liability_payable'])
+                (f'account_id.{atype_field}', 'in', [AR_VALUE, AP_VALUE]),
             ]
             if record.date_from:
                 line_domain.append(('date', '>=', record.date_from))
@@ -68,44 +78,62 @@ class PartnerLedgerCollapseXlsxController(http.Controller):
 
             partner_lines = AccountMoveLine.search(line_domain)
 
-            if not partner_lines and not record.date_from:
-                continue
-
             # ---------------- Opening Balance ----------------
             opening_balance = 0.0
+            opening_debit_sum = 0.0
+            opening_credit_sum = 0.0
             if record.date_from:
                 base_opening_domain = [
                     ('partner_id', '=', partner.id),
                     ('move_id.state', '=', 'posted'),
                     ('date', '<', record.date_from),
-                    ('account_id.account_type', 'in', ['asset_receivable', 'liability_payable']),
                 ]
-                opening_lines = AccountMoveLine.search(base_opening_domain)
+                # Receivable
+                ar_grp = AccountMoveLine.read_group(
+                    base_opening_domain + [(f'account_id.{atype_field}', '=', AR_VALUE)],
+                    ['debit:sum', 'credit:sum'], []
+                )
+                ar_d = float((ar_grp[0].get('debit', 0.0) if ar_grp else 0.0) or 0.0)
+                ar_c = float((ar_grp[0].get('credit', 0.0) if ar_grp else 0.0) or 0.0)
+                opening_ar = ar_d - ar_c
 
-                receivable_open = sum(l.debit - l.credit for l in opening_lines if l.account_id.account_type == 'asset_receivable')
-                payable_open = sum(l.credit - l.debit for l in opening_lines if l.account_id.account_type == 'liability_payable')
-                opening_balance = receivable_open - payable_open
+                # Payable
+                ap_grp = AccountMoveLine.read_group(
+                    base_opening_domain + [(f'account_id.{atype_field}', '=', AP_VALUE)],
+                    ['debit:sum', 'credit:sum'], []
+                )
+                ap_d = float((ap_grp[0].get('debit', 0.0) if ap_grp else 0.0) or 0.0)
+                ap_c = float((ap_grp[0].get('credit', 0.0) if ap_grp else 0.0) or 0.0)
+                opening_ap = ap_c - ap_d
+
+                opening_debit_sum = ar_d + ap_d
+                opening_credit_sum = ar_c + ap_c
+                opening_balance = opening_ar - opening_ap
             # -------------------------------------------------
 
+            # Skip if no lines and no opening balance
+            if not partner_lines and not opening_balance:
+                continue
+
             # Period totals
-            total_debit = sum(l.debit for l in partner_lines)
-            total_credit = sum(l.credit for l in partner_lines)
-            running_receivable = sum(l.debit - l.credit for l in partner_lines if l.account_id.account_type == 'asset_receivable')
-            running_payable = sum(l.credit - l.debit for l in partner_lines if l.account_id.account_type == 'liability_payable')
-            balance = opening_balance + (running_receivable - running_payable)
+            period_total_debit = sum(float(l.debit) for l in partner_lines)
+            period_total_credit = sum(float(l.credit) for l in partner_lines)
+            period_ar = sum((float(l.debit) - float(l.credit)) for l in partner_lines if getattr(l.account_id, atype_field) == AR_VALUE)
+            period_ap = sum((float(l.credit) - float(l.debit)) for l in partner_lines if getattr(l.account_id, atype_field) == AP_VALUE)
+            final_balance = opening_balance + (period_ar - period_ap)
 
             # Accumulate totals
             total_opening_balance += opening_balance
-            total_debit_sum += total_debit
-            total_credit_sum += total_credit
-            total_balance_sum += balance
+            total_debit_sum += period_total_debit
+            total_credit_sum += period_total_credit
+            total_balance_sum += final_balance
 
             # Write row
             sheet.write(row, 0, partner.name)
             sheet.write_number(row, 1, opening_balance, money)
-            sheet.write_number(row, 2, total_debit, money)
-            sheet.write_number(row, 3, total_credit, money)
-            sheet.write_number(row, 4, balance, money)
+            sheet.write_number(row, 2, period_total_debit, money)
+            sheet.write_number(row, 3, period_total_credit, money)
+            sheet.write_number(row, 4, final_balance, money)
             row += 1
 
         # ---------------- Totals Row ----------------
