@@ -18,6 +18,7 @@ class PartnerLedgerCollapseXlsxController(http.Controller):
         bold = workbook.add_format({'bold': True, 'bg_color': '#F0F0F0'})
         money = workbook.add_format({'num_format': '#,##0.00'})
         header = workbook.add_format({'bold': True, 'font_size': 12})
+        total_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'num_format': '#,##0.00'})
 
         row = 0
 
@@ -46,6 +47,12 @@ class PartnerLedgerCollapseXlsxController(http.Controller):
             partners = partners.filtered(lambda p: p.id == record.partner_id.id)
         if record.vendor_group:
             partners = partners.filtered(lambda p: p.vendor_group == record.vendor_group)
+
+        # Totals accumulators
+        total_opening_balance = 0.0
+        total_debit_sum = 0.0
+        total_credit_sum = 0.0
+        total_balance_sum = 0.0
 
         for partner in partners:
             # Domain for posted move lines for this partner (in-period)
@@ -87,6 +94,12 @@ class PartnerLedgerCollapseXlsxController(http.Controller):
             running_payable = sum(l.credit - l.debit for l in partner_lines if l.account_id.account_type == 'liability_payable')
             balance = opening_balance + (running_receivable - running_payable)
 
+            # Accumulate totals
+            total_opening_balance += opening_balance
+            total_debit_sum += total_debit
+            total_credit_sum += total_credit
+            total_balance_sum += balance
+
             # Write row
             sheet.write(row, 0, partner.name)
             sheet.write_number(row, 1, opening_balance, money)
@@ -94,6 +107,14 @@ class PartnerLedgerCollapseXlsxController(http.Controller):
             sheet.write_number(row, 3, total_credit, money)
             sheet.write_number(row, 4, balance, money)
             row += 1
+
+        # ---------------- Totals Row ----------------
+        sheet.write(row, 0, "TOTAL", bold)
+        sheet.write_number(row, 1, total_opening_balance, total_fmt)
+        sheet.write_number(row, 2, total_debit_sum, total_fmt)
+        sheet.write_number(row, 3, total_credit_sum, total_fmt)
+        sheet.write_number(row, 4, total_balance_sum, total_fmt)
+        # --------------------------------------------
 
         workbook.close()
         output.seek(0)
