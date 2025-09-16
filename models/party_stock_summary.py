@@ -59,8 +59,14 @@ class PartyStockSummary(models.Model):
                     continue
                 summary.setdefault(partner, {})
                 if product not in summary[partner]:
-                    summary[partner][product] = {"sold_qty": 0.0, "bought_qty": 0.0}
+                    summary[partner][product] = {
+                        "sold_qty": 0.0,
+                        "bought_qty": 0.0,
+                        "sold_price": 0.0,
+                        "bought_price": 0.0,
+                    }
                 summary[partner][product]["sold_qty"] += line.product_uom_qty
+                summary[partner][product]["sold_price"] += line.product_uom_qty * line.price_unit
 
             # Purchases
             for line in purchase_lines:
@@ -70,8 +76,14 @@ class PartyStockSummary(models.Model):
                     continue
                 summary.setdefault(partner, {})
                 if product not in summary[partner]:
-                    summary[partner][product] = {"sold_qty": 0.0, "bought_qty": 0.0}
+                    summary[partner][product] = {
+                        "sold_qty": 0.0,
+                        "bought_qty": 0.0,
+                        "sold_price": 0.0,
+                        "bought_price": 0.0,
+                    }
                 summary[partner][product]["bought_qty"] += line.product_qty
+                summary[partner][product]["bought_price"] += line.product_qty * line.price_unit
 
             # Render HTML row by row
             html_sections = ""
@@ -92,7 +104,9 @@ class PartyStockSummary(models.Model):
                     "<th>Product</th>"
                     "<th>Category</th>"
                     "<th>Quantity Bought From</th>"
+                    "<th>Buying Price</th>"
                     "<th>Quantity Sold To</th>"
+                    "<th>Selling Price</th>"
                     "</tr>"
                 )
                 for product, vals in products.items():
@@ -101,7 +115,9 @@ class PartyStockSummary(models.Model):
                         f"<td>{product.display_name}</td>"
                         f"<td>{product.categ_id.name or 'N/A'}</td>"
                         f"<td>{vals['bought_qty']:.2f}</td>"
+                        f"<td>{vals['bought_price']:.2f}</td>"
                         f"<td>{vals['sold_qty']:.2f}</td>"
+                        f"<td>{vals['sold_price']:.2f}</td>"
                         "</tr>"
                     )
                 html_sections += "</table></div>"
