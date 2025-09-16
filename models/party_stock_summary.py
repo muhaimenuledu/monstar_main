@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from odoo import api, fields, models
 from datetime import date
 
@@ -27,8 +28,9 @@ class PartyStockSummary(models.Model):
         SaleOrderLine = self.env["sale.order.line"].sudo()
         PurchaseOrderLine = self.env["purchase.order.line"].sudo()
 
+        column_widths = ["20%", "15%", "15%", "15%", "15%", "20%"]  # total 100%
+
         for rec in self:
-            # Base domains
             sale_domain = [("order_id.state", "in", ["sale", "done"])]
             purchase_domain = [("order_id.state", "in", ["purchase", "done"])]
 
@@ -45,13 +47,10 @@ class PartyStockSummary(models.Model):
                 sale_domain.append(("product_id", "=", rec.product_id.id))
                 purchase_domain.append(("product_id", "=", rec.product_id.id))
 
-            # Query lines
             sale_lines = SaleOrderLine.search(sale_domain)
             purchase_lines = PurchaseOrderLine.search(purchase_domain)
 
-            # Grouped summary per partner
             summary = {}
-            # Sales
             for line in sale_lines:
                 partner = line.order_id.partner_id
                 product = line.product_id
@@ -68,7 +67,6 @@ class PartyStockSummary(models.Model):
                 summary[partner][product]["sold_qty"] += line.product_uom_qty
                 summary[partner][product]["sold_price"] += line.product_uom_qty * line.price_unit
 
-            # Purchases
             for line in purchase_lines:
                 partner = line.order_id.partner_id
                 product = line.product_id
@@ -85,71 +83,75 @@ class PartyStockSummary(models.Model):
                 summary[partner][product]["bought_qty"] += line.product_qty
                 summary[partner][product]["bought_price"] += line.product_qty * line.price_unit
 
-            # Render HTML row by row
             html_sections = ""
             for partner, products in summary.items():
-                # Initialize totals for this partner
                 partner_bought_qty_total = 0.0
                 partner_bought_price_total = 0.0
                 partner_sold_qty_total = 0.0
                 partner_sold_price_total = 0.0
-                
+
+                # Wrap table in a div with margin-bottom
+                html_sections += "<div style='margin-bottom:20px;'>"
+
+                # Grey row for partner name
                 html_sections += (
-                    "<div style='margin: 10px 0; padding: 10px; background: #f5f5f5; "
-                    "border: 1px solid #ccc; border-radius: 5px;'>"
+                    "<table cellpadding='4' cellspacing='0' "
+                    "style='border-collapse:collapse; font-size:12px; width:100%; text-align:left;'>"
                 )
                 html_sections += (
-                    f"<h4 style='margin: 0 0 10px 0; padding: 6px; background: #e0e0e0;'>{partner.display_name}</h4>"
+                    f"<tr style='background:#d9d9d9; font-weight:bold;'>"
+                    f"<td colspan='6' style='border:1px solid black; padding:6px;'>{partner.display_name}</td>"
+                    f"</tr>"
                 )
-                html_sections += (
-                    "<table border='1' cellpadding='4' cellspacing='0' "
-                    "style='border-collapse: collapse; font-size: 12px; width: 100%; text-align: left;'>"
-                )
-                html_sections += (
-                    "<tr style='background:#a0c4ff;'>"
-                    "<th>Product</th>"
-                    "<th>Category</th>"
-                    "<th>Quantity Bought From</th>"
-                    "<th>Buying Price</th>"
-                    "<th>Quantity Sold To</th>"
-                    "<th>Selling Price</th>"
-                    "</tr>"
-                )
+
+                # Column headers
+                html_sections += "<tr style='background:#f5f5f5; font-weight:bold;'>"
+                headers = ["Product", "Category", "Quantity Bought From", "Buying Price", "Quantity Sold To", "Selling Price"]
+                for idx, header in enumerate(headers):
+                    html_sections += f"<th style='border:1px solid black; width:{column_widths[idx]};'>{header}</th>"
+                html_sections += "</tr>"
+
                 for product, vals in products.items():
-                    # Add to partner totals
                     partner_bought_qty_total += vals['bought_qty']
                     partner_bought_price_total += vals['bought_price']
                     partner_sold_qty_total += vals['sold_qty']
                     partner_sold_price_total += vals['sold_price']
-                    
-                    html_sections += (
-                        "<tr>"
-                        f"<td>{product.display_name}</td>"
-                        f"<td>{product.categ_id.name or 'N/A'}</td>"
-                        f"<td>{vals['bought_qty']:.2f}</td>"
-                        f"<td>{vals['bought_price']:.2f}</td>"
-                        f"<td>{vals['sold_qty']:.2f}</td>"
-                        f"<td>{vals['sold_price']:.2f}</td>"
-                        "</tr>"
-                    )
-                
-                # Add summary row for this partner
-                html_sections += (
-                    "<tr style='background:#d1ecf1; font-weight: bold;'>"
-                    "<td colspan='2' style='text-align: right;'>Total:</td>"
-                    f"<td>{partner_bought_qty_total:.2f}</td>"
-                    f"<td>{partner_bought_price_total:.2f}</td>"
-                    f"<td>{partner_sold_qty_total:.2f}</td>"
-                    f"<td>{partner_sold_price_total:.2f}</td>"
-                    "</tr>"
-                )
-                
-                html_sections += "</table></div>"
+
+                    html_sections += "<tr style='background:white;'>"
+                    cells = [
+                        product.display_name,
+                        product.categ_id.name or 'N/A',
+                        f"{vals['bought_qty']:.2f}",
+                        f"{vals['bought_price']:.2f}",
+                        f"{vals['sold_qty']:.2f}",
+                        f"{vals['sold_price']:.2f}",
+                    ]
+                    for idx, cell in enumerate(cells):
+                        html_sections += f"<td style='border:1px solid black; width:{column_widths[idx]};'>{cell}</td>"
+                    html_sections += "</tr>"
+
+                # Partner total row
+                html_sections += "<tr style='background:white; font-weight:bold;'>"
+                total_cells = [
+                    "Total:",
+                    "",
+                    f"{partner_bought_qty_total:.2f}",
+                    f"{partner_bought_price_total:.2f}",
+                    f"{partner_sold_qty_total:.2f}",
+                    f"{partner_sold_price_total:.2f}",
+                ]
+                for idx, cell in enumerate(total_cells):
+                    html_sections += f"<td style='border:1px solid black; width:{column_widths[idx]}; text-align:{'right' if idx in [0,2,3,4,5] else 'left'};'>{cell}</td>"
+                html_sections += "</tr>"
+
+                html_sections += "</table>"
+                html_sections += "</div>"  # margin-bottom wraps the table
 
             rec.stock_summary_html = (
-                f"<div style='display: block; width: 100%;'>{html_sections}</div>"
+                f"<div style='display:block; width:100%;'>{html_sections}</div>"
                 or "<p>No data found.</p>"
             )
+
 
     def action_export_xlsx(self):
         return {
