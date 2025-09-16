@@ -18,6 +18,7 @@ class PartyStockSummaryExportController(http.Controller):
 
         bold = workbook.add_format({'bold': True})
         money = workbook.add_format({'num_format': '#,##0.00'})
+        total_format = workbook.add_format({'bold': True, 'bg_color': '#d1ecf1', 'num_format': '#,##0.00'})
 
         # === Write header row ===
         row = 0
@@ -79,11 +80,23 @@ class PartyStockSummaryExportController(http.Controller):
 
         # === Write data ===
         for partner, products in summary.items():
+            # Initialize totals for this partner
+            partner_bought_qty_total = 0.0
+            partner_bought_price_total = 0.0
+            partner_sold_qty_total = 0.0
+            partner_sold_price_total = 0.0
+            
             # Partner header row
             sheet.write(row, 0, partner.display_name, bold)
             row += 1
 
             for product, vals in products.items():
+                # Add to partner totals
+                partner_bought_qty_total += vals["bought_qty"]
+                partner_bought_price_total += vals["bought_price"]
+                partner_sold_qty_total += vals["sold_qty"]
+                partner_sold_price_total += vals["sold_price"]
+                
                 sheet.write(row, 0, "")  # partner column empty for detail rows
                 sheet.write(row, 1, product.display_name)
                 sheet.write(row, 2, product.categ_id.name or "N/A")
@@ -92,8 +105,16 @@ class PartyStockSummaryExportController(http.Controller):
                 sheet.write(row, 5, vals["sold_qty"])
                 sheet.write(row, 6, vals["sold_price"], money)
                 row += 1
-
-            row += 1  # blank line after each partner
+            
+            # Add summary row for this partner
+            sheet.write(row, 0, "", total_format)
+            sheet.write(row, 1, "Total", total_format)
+            sheet.write(row, 2, "", total_format)
+            sheet.write(row, 3, partner_bought_qty_total, total_format)
+            sheet.write(row, 4, partner_bought_price_total, total_format)
+            sheet.write(row, 5, partner_sold_qty_total, total_format)
+            sheet.write(row, 6, partner_sold_price_total, total_format)
+            row += 2  # blank line after each partner
 
         workbook.close()
         output.seek(0)
