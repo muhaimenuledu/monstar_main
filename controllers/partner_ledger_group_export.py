@@ -3,7 +3,6 @@ from odoo.http import request
 import io
 import xlsxwriter
 
-
 class PartnerLedgerGroupExportController(http.Controller):
 
     @http.route('/partner_ledger_group/export_xlsx', type='http', auth='user')
@@ -23,24 +22,14 @@ class PartnerLedgerGroupExportController(http.Controller):
         summary_bg = workbook.add_format({'bold': True, 'bg_color': '#C6EFCE', 'num_format': '#,##0.00'})
 
         # === Column headers ===
-        row = 0
         headers = [
-            "Partner",
-            "Date",
-            "Ref",
-            "Label",
-            "Product Group",
-            "Product",
-            "Unit Price",
-            "Account (DR)",
-            "Account (CR)",
-            "Amount Dr.",
-            "Amount Cr.",
-            "Balance",
+            "Partner", "Date", "Ref", "Label", "Product Group",
+            "Product", "Unit Price", "Account (DR)", "Account (CR)",
+            "Amount Dr.", "Amount Cr.", "Balance"
         ]
         for col, header in enumerate(headers):
-            sheet.write(row, col, header, header_bg)
-        row += 1
+            sheet.write(0, col, header, header_bg)
+        row = 1
 
         AccountMoveLine = request.env['account.move.line'].sudo()
         AccountAccount = request.env['account.account'].sudo()
@@ -65,13 +54,12 @@ class PartnerLedgerGroupExportController(http.Controller):
         for line in move_lines:
             lines_by_partner.setdefault(line.partner_id, []).append(line)
 
-        # === Write each partner section ===
         for partner, lines in lines_by_partner.items():
-            # Partner header
+            # Partner header row
             sheet.write(row, 0, partner.name, header_bg)
             row += 1
 
-            running_balance = 0.0  # Initialize running balance
+            running_balance = 0.0
 
             for line in lines:
                 move = line.move_id
@@ -80,24 +68,21 @@ class PartnerLedgerGroupExportController(http.Controller):
                 product_group = line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unavailable"
                 product_name = line.product_id.display_name if line.product_id else "Unavailable"
 
-                # === Swap DR/CR accounts and amounts ===
+                # Swap DR/CR for display
                 account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else ""
                 account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else ""
                 amount_dr = line.credit or 0.0
                 amount_cr = line.debit or 0.0
 
+                # === Running balance matches the model exactly ===
                 running_balance += (amount_dr - amount_cr)
 
-                # === Compute unit price ===
-                if getattr(line, 'price_unit', False):
-                    unit_price = line.price_unit
-                elif getattr(line, 'quantity', 0) and (amount_dr or amount_cr):
-                    total = amount_dr or amount_cr
-                    unit_price = total / line.quantity if line.quantity else 0.0
-                else:
-                    unit_price = 0.0
+                # Compute unit price
+                unit_price = 0.0
+                if line.quantity:
+                    unit_price = (amount_dr or amount_cr) / line.quantity
 
-                # === Write line ===
+                # Write line
                 sheet.write(row, 0, "")  # Empty partner cell
                 sheet.write(row, 1, str(line.date))
                 sheet.write(row, 2, ref)
@@ -109,7 +94,7 @@ class PartnerLedgerGroupExportController(http.Controller):
                 sheet.write(row, 8, account_cr)
                 sheet.write(row, 9, amount_dr, money)
                 sheet.write(row, 10, amount_cr, money)
-                sheet.write(row, 11, running_balance, money)  # Balance column
+                sheet.write(row, 11, running_balance, money)
                 row += 1
 
             # === Partner summary balance ===
@@ -128,12 +113,13 @@ class PartnerLedgerGroupExportController(http.Controller):
             balance = 0.0
             if partner_lines:
                 totals = partner_lines[0]
-                balance = totals.get('credit', 0.0) - totals.get('debit', 0.0)  # Swap DR/CR for summary
+                # Swap debit and credit in summary to match model
+                balance = totals.get('credit', 0.0) - totals.get('debit', 0.0)
 
             # Summary row
             sheet.write(row, 0, f"Balance for {partner.name}", bold)
             sheet.write(row, 11, balance, summary_bg)
-            row += 2  # Blank line after each partner
+            row += 2  # Blank line
 
         # === Adjust column widths ===
         widths = [18, 12, 18, 25, 20, 25, 12, 30, 30, 15, 15, 15]
