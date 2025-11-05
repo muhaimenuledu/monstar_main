@@ -36,9 +36,10 @@ class PartnerLedgerGroupExportController(http.Controller):
             "Account (CR)",
             "Amount Dr.",
             "Amount Cr.",
+            "Balance",
         ]
         for col, header in enumerate(headers):
-            sheet.write(row, col, header, bold)
+            sheet.write(row, col, header, header_bg)
         row += 1
 
         AccountMoveLine = request.env['account.move.line'].sudo()
@@ -48,7 +49,7 @@ class PartnerLedgerGroupExportController(http.Controller):
         domain = [
             ('partner_id', '!=', False),
             ('move_id.state', '=', 'posted'),
-            ('product_id', '!=', False),  # ✅ Added: only product-related lines
+            ('product_id', '!=', False),
         ]
         if record.date_from:
             domain.append(('date', '>=', record.date_from))
@@ -66,9 +67,11 @@ class PartnerLedgerGroupExportController(http.Controller):
 
         # === Write each partner section ===
         for partner, lines in lines_by_partner.items():
-            # Partner header row
+            # Partner header
             sheet.write(row, 0, partner.name, header_bg)
             row += 1
+
+            running_balance = 0.0  # Initialize running balance
 
             for line in lines:
                 move = line.move_id
@@ -76,10 +79,14 @@ class PartnerLedgerGroupExportController(http.Controller):
                 label = line.name or move.name or "Unavailable"
                 product_group = line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unavailable"
                 product_name = line.product_id.display_name if line.product_id else "Unavailable"
-                account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else ""
-                account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else ""
-                amount_dr = line.debit or 0.0
-                amount_cr = line.credit or 0.0
+
+                # === Swap DR/CR accounts and amounts ===
+                account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else ""
+                account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else ""
+                amount_dr = line.credit or 0.0
+                amount_cr = line.debit or 0.0
+
+                running_balance += (amount_dr - amount_cr)
 
                 # === Compute unit price ===
                 if getattr(line, 'price_unit', False):
@@ -102,6 +109,7 @@ class PartnerLedgerGroupExportController(http.Controller):
                 sheet.write(row, 8, account_cr)
                 sheet.write(row, 9, amount_dr, money)
                 sheet.write(row, 10, amount_cr, money)
+                sheet.write(row, 11, running_balance, money)  # Balance column
                 row += 1
 
             # === Partner summary balance ===
@@ -120,15 +128,15 @@ class PartnerLedgerGroupExportController(http.Controller):
             balance = 0.0
             if partner_lines:
                 totals = partner_lines[0]
-                balance = totals.get('debit', 0.0) - totals.get('credit', 0.0)
+                balance = totals.get('credit', 0.0) - totals.get('debit', 0.0)  # Swap DR/CR for summary
 
             # Summary row
             sheet.write(row, 0, f"Balance for {partner.name}", bold)
-            sheet.write(row, 10, balance, summary_bg)
-            row += 2  # Blank line after each partner section
+            sheet.write(row, 11, balance, summary_bg)
+            row += 2  # Blank line after each partner
 
         # === Adjust column widths ===
-        widths = [18, 12, 18, 25, 20, 25, 12, 30, 30, 15, 15]
+        widths = [18, 12, 18, 25, 20, 25, 12, 30, 30, 15, 15, 15]
         for i, w in enumerate(widths):
             sheet.set_column(i, i, w)
 
