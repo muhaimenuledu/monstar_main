@@ -68,13 +68,14 @@ class PartnerLedgerGroupExportController(http.Controller):
                 product_group = line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unavailable"
                 product_name = line.product_id.display_name if line.product_id else "Unavailable"
 
-                # Swap DR/CR for display
-                account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else ""
-                account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else ""
-                amount_dr = line.credit or 0.0
-                amount_cr = line.debit or 0.0
+                # === Use actual debit and credit values ===
+                amount_dr = line.debit or 0.0
+                amount_cr = line.credit or 0.0
 
-                # === Running balance matches the model exactly ===
+                account_dr = f"{line.account_id.code} - {line.account_id.name}" if amount_dr > 0 else ""
+                account_cr = f"{line.account_id.code} - {line.account_id.name}" if amount_cr > 0 else ""
+
+                # === Running balance ===
                 running_balance += (amount_dr - amount_cr)
 
                 # Compute unit price
@@ -113,8 +114,7 @@ class PartnerLedgerGroupExportController(http.Controller):
             balance = 0.0
             if partner_lines:
                 totals = partner_lines[0]
-                # Swap debit and credit in summary to match model
-                balance = totals.get('credit', 0.0) - totals.get('debit', 0.0)
+                balance = totals.get('debit', 0.0) - totals.get('credit', 0.0)
 
             # Summary row
             sheet.write(row, 0, f"Balance for {partner.name}", bold)
