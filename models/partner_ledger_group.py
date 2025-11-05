@@ -23,7 +23,7 @@ class PartnerLedgerGroup(models.Model):
             domain = [
                 ('partner_id', '!=', False),
                 ('move_id.state', '=', 'posted'),
-                ('product_id', '!=', False),  # ✅ Added: Only include product lines
+                ('product_id', '!=', False),  # Only include product lines
             ]
 
             if rec.date_from:
@@ -53,11 +53,12 @@ class PartnerLedgerGroup(models.Model):
                 "account_cr": 30,
                 "amount_dr": 15,
                 "amount_cr": 15,
+                "balance": 15,  # Balance column
             }
 
             for partner, lines in lines_by_partner.items():
                 breakdown.append(f"PARTNER_HEADER||Party: {partner.name}")
-                header = "| {date} | {ref} | {label} | {group} | {product_name} | {unit_price} | {account_dr} | {account_cr} | {amount_dr} | {amount_cr} |".format(
+                header = "| {date} | {ref} | {label} | {group} | {product_name} | {unit_price} | {account_dr} | {account_cr} | {amount_dr} | {amount_cr} | {balance} |".format(
                     date="Date".center(widths["date"]),
                     ref="Ref".center(widths["ref"]),
                     label="Label".center(widths["label"]),
@@ -68,8 +69,11 @@ class PartnerLedgerGroup(models.Model):
                     account_cr="Account (CR.)".center(widths["account_cr"]),
                     amount_dr="Amount Dr.".center(widths["amount_dr"]),
                     amount_cr="Amount Cr.".center(widths["amount_cr"]),
+                    balance="Balance".center(widths["balance"]),
                 )
                 breakdown.append(header)
+
+                running_balance = 0.0  # Initialize running balance per partner
 
                 for line in lines:
                     move = line.move_id
@@ -78,17 +82,23 @@ class PartnerLedgerGroup(models.Model):
                     ref = (move.ref or move.name or "Unavailable")[:widths["ref"]]
                     product_group = (line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unavailable")[:widths["group"]]
                     product_name = (line.product_id.display_name if line.product_id else "Unavailable")[:widths["product_name"]]
-                    account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else "Unavailable"
-                    account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else "Unavailable"
+
+                    # Swap DR and CR accounts
+                    account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else "Unavailable"
+                    account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else "Unavailable"
+
+                    # Swap DR and CR amounts
+                    amount_dr = line.credit or 0.0
+                    amount_cr = line.debit or 0.0
+
+                    # Running balance based on swapped values
+                    running_balance += (amount_dr - amount_cr)
 
                     unit_price = 0.0
                     if line.quantity:
-                        unit_price = (line.debit or line.credit) / line.quantity
+                        unit_price = (amount_dr or amount_cr) / line.quantity
 
-                    amount_dr = line.debit or 0.0
-                    amount_cr = line.credit or 0.0
-
-                    row = "| {date} | {ref} | {label} | {group} | {product_name} | {unit_price} | {account_dr} | {account_cr} | {amount_dr} | {amount_cr} |".format(
+                    row = "| {date} | {ref} | {label} | {group} | {product_name} | {unit_price} | {account_dr} | {account_cr} | {amount_dr} | {amount_cr} | {balance} |".format(
                         date=str(line.date)[:widths["date"]].ljust(widths["date"]),
                         ref=ref[:widths["ref"]].ljust(widths["ref"]),
                         label=label[:widths["label"]].ljust(widths["label"]),
@@ -99,6 +109,7 @@ class PartnerLedgerGroup(models.Model):
                         account_cr=account_cr[:widths["account_cr"]].ljust(widths["account_cr"]),
                         amount_dr="{:,.2f}".format(amount_dr).rjust(widths["amount_dr"]),
                         amount_cr="{:,.2f}".format(amount_cr).rjust(widths["amount_cr"]),
+                        balance="{:,.2f}".format(running_balance).rjust(widths["balance"]),
                     )
                     breakdown.append(row)
 
@@ -118,21 +129,24 @@ class PartnerLedgerGroup(models.Model):
                 balance = 0.0
                 if partner_lines:
                     totals = partner_lines[0]
-                    balance = (totals.get('debit', 0.0) - totals.get('credit', 0.0))
+                    # Swap debit and credit in summary as well
+                    balance = (totals.get('credit', 0.0) - totals.get('debit', 0.0))
 
-                summary_row = f"| {'':{widths['date']}} | {'':{widths['ref']}} | {'':{widths['label']}} | {'':{widths['group']}} | {'':{widths['product_name']}} | {'':{widths['unit_price']}} | {'':{widths['account_dr']}} | {'':{widths['account_cr']}} | {'':{widths['amount_dr']}} | {'Balance: ' + '{:,.2f}'.format(balance):{widths['amount_cr']}} |"
+                # Add summary row with Balance
+                summary_row = f"| {'':{widths['date']}} | {'':{widths['ref']}} | {'':{widths['label']}} | {'':{widths['group']}} | {'':{widths['product_name']}} | {'':{widths['unit_price']}} | {'':{widths['account_dr']}} | {'':{widths['account_cr']}} | {'':{widths['amount_dr']}} | {'':{widths['amount_cr']}} | {'Balance: ' + '{:,.2f}'.format(balance):{widths['balance']}} |"
                 breakdown.append("SUMMARY_ROW||" + summary_row)
 
-            html = "<h3>Partner Ledger Journal Line Breakdown (Product Lines Only)</h3>"
+            # === HTML rendering ===
+            html = "<h3>Partner Ledger Journal Line Breakdown (Product Lines Only, DR/CR Swapped)</h3>"
             html += "<table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size: 12px;'>"
 
             for line in breakdown:
                 if line.startswith("PARTNER_HEADER||"):
                     partner_name = line.split("||")[1]
-                    html += f"<tr style='background:#a0c4ff;'><td colspan='10'><strong>{partner_name}</strong></td></tr>"
+                    html += f"<tr style='background:#a0c4ff;'><td colspan='11'><strong>{partner_name}</strong></td></tr>"
                 elif line.startswith("SUMMARY_ROW||"):
-                    row = line.split("||")[1]
-                    columns = [col.strip() for col in row.strip('|').split('|')]
+                    row_data = line.split("||")[1]
+                    columns = [col.strip() for col in row_data.strip('|').split('|')]
                     html += "<tr style='background:#d3f8d3; font-weight:bold;'>" + "".join([f"<td>{c}</td>" for c in columns]) + "</tr>"
                 elif line.strip().startswith("|"):
                     columns = [col.strip() for col in line.strip('|').split('|')]
