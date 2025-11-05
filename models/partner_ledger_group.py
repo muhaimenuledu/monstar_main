@@ -20,7 +20,11 @@ class PartnerLedgerGroup(models.Model):
         AccountAccount = self.env['account.account'].sudo()
 
         for rec in self:
-            domain = [('partner_id', '!=', False), ('move_id.state', '=', 'posted')]
+            domain = [
+                ('partner_id', '!=', False),
+                ('move_id.state', '=', 'posted'),
+                ('product_id', '!=', False),  # ✅ Added: Only include product lines
+            ]
 
             if rec.date_from:
                 domain.append(('date', '>=', rec.date_from))
@@ -103,9 +107,11 @@ class PartnerLedgerGroup(models.Model):
                     ('account_type', 'in', ['asset_receivable', 'liability_payable'])
                 ])
                 partner_lines = AccountMoveLine.read_group(
-                    domain=[('partner_id', '=', partner.id),
-                            ('account_id', 'in', payable_receivable_accounts.ids),
-                            ('move_id.state', '=', 'posted')],
+                    domain=[
+                        ('partner_id', '=', partner.id),
+                        ('account_id', 'in', payable_receivable_accounts.ids),
+                        ('move_id.state', '=', 'posted')
+                    ],
                     fields=['debit', 'credit'],
                     groupby=[]
                 )
@@ -114,12 +120,10 @@ class PartnerLedgerGroup(models.Model):
                     totals = partner_lines[0]
                     balance = (totals.get('debit', 0.0) - totals.get('credit', 0.0))
 
-                # Add summary row
                 summary_row = f"| {'':{widths['date']}} | {'':{widths['ref']}} | {'':{widths['label']}} | {'':{widths['group']}} | {'':{widths['product_name']}} | {'':{widths['unit_price']}} | {'':{widths['account_dr']}} | {'':{widths['account_cr']}} | {'':{widths['amount_dr']}} | {'Balance: ' + '{:,.2f}'.format(balance):{widths['amount_cr']}} |"
                 breakdown.append("SUMMARY_ROW||" + summary_row)
 
-            # HTML rendering
-            html = "<h3>Partner Ledger Journal Line Breakdown</h3>"
+            html = "<h3>Partner Ledger Journal Line Breakdown (Product Lines Only)</h3>"
             html += "<table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size: 12px;'>"
 
             for line in breakdown:
