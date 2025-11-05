@@ -53,7 +53,7 @@ class PartnerLedgerGroup(models.Model):
                 "account_cr": 30,
                 "amount_dr": 15,
                 "amount_cr": 15,
-                "balance": 15,  # Balance column
+                "balance": 15,  # Added Balance column
             }
 
             for partner, lines in lines_by_partner.items():
@@ -82,21 +82,16 @@ class PartnerLedgerGroup(models.Model):
                     ref = (move.ref or move.name or "Unavailable")[:widths["ref"]]
                     product_group = (line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unavailable")[:widths["group"]]
                     product_name = (line.product_id.display_name if line.product_id else "Unavailable")[:widths["product_name"]]
-
-                    # Swap DR and CR accounts
-                    account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else "Unavailable"
-                    account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else "Unavailable"
-
-                    # Swap DR and CR amounts
-                    amount_dr = line.credit or 0.0
-                    amount_cr = line.debit or 0.0
-
-                    # Running balance based on swapped values
-                    running_balance += (amount_dr - amount_cr)
+                    account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else "Unavailable"
+                    account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else "Unavailable"
 
                     unit_price = 0.0
                     if line.quantity:
-                        unit_price = (amount_dr or amount_cr) / line.quantity
+                        unit_price = (line.debit or line.credit) / line.quantity
+
+                    amount_dr = line.debit or 0.0
+                    amount_cr = line.credit or 0.0
+                    running_balance += (amount_dr - amount_cr)  # Update running balance
 
                     row = "| {date} | {ref} | {label} | {group} | {product_name} | {unit_price} | {account_dr} | {account_cr} | {amount_dr} | {amount_cr} | {balance} |".format(
                         date=str(line.date)[:widths["date"]].ljust(widths["date"]),
@@ -129,15 +124,14 @@ class PartnerLedgerGroup(models.Model):
                 balance = 0.0
                 if partner_lines:
                     totals = partner_lines[0]
-                    # Swap debit and credit in summary as well
-                    balance = (totals.get('credit', 0.0) - totals.get('debit', 0.0))
+                    balance = (totals.get('debit', 0.0) - totals.get('credit', 0.0))
 
                 # Add summary row with Balance
                 summary_row = f"| {'':{widths['date']}} | {'':{widths['ref']}} | {'':{widths['label']}} | {'':{widths['group']}} | {'':{widths['product_name']}} | {'':{widths['unit_price']}} | {'':{widths['account_dr']}} | {'':{widths['account_cr']}} | {'':{widths['amount_dr']}} | {'':{widths['amount_cr']}} | {'Balance: ' + '{:,.2f}'.format(balance):{widths['balance']}} |"
                 breakdown.append("SUMMARY_ROW||" + summary_row)
 
             # === HTML rendering ===
-            html = "<h3>Partner Ledger Journal Line Breakdown (Product Lines Only, DR/CR Swapped)</h3>"
+            html = "<h3>Partner Ledger Journal Line Breakdown (Product Lines Only)</h3>"
             html += "<table border='1' cellpadding='3' cellspacing='0' style='border-collapse: collapse; font-size: 12px;'>"
 
             for line in breakdown:
