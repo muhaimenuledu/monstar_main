@@ -38,77 +38,50 @@ class GeneralLedgerXlsxController(http.Controller):
         )
 
         for account in accounts:
-            # Domain for period transactions
-            domain = [
+            # ---------------------------------------------------------
+            # 1) Base domain and opening balance (same idea as model)
+            # ---------------------------------------------------------
+            base_domain = [
                 ('account_id', '=', account.id),
                 ('move_id.state', '=', 'posted'),
             ]
-            if record.date_from:
-                domain.append(('date', '>=', record.date_from))
-            if record.date_to:
-                domain.append(('date', '<=', record.date_to))
             if getattr(record, 'partner_id', False):
-                domain.append(('partner_id', '=', record.partner_id.id))
+                base_domain.append(('partner_id', '=', record.partner_id.id))
 
-            move_lines = AccountMoveLine.search(domain, order='date, id')
-
-            # ---------------------------------------------------------
-            # Case 1: No transactions in the period → still show balance
-            # ---------------------------------------------------------
-            if not move_lines:
-                # Keep original behavior if there is no date filter at all
-                if not (record.date_from or record.date_to):
-                    continue
-
-                # Compute balance as of date_to (or before date_from) like in the model
-                opening_domain = [
-                    ('account_id', '=', account.id),
-                    ('move_id.state', '=', 'posted'),
-                ]
-                if getattr(record, 'partner_id', False):
-                    opening_domain.append(('partner_id', '=', record.partner_id.id))
-
-                if record.date_to:
-                    opening_domain.append(('date', '<=', record.date_to))
-                    as_of_label = f"Balance as of {record.date_to}"
-                elif record.date_from:
-                    opening_domain.append(('date', '<', record.date_from))
-                    as_of_label = f"Balance as of {record.date_from}"
-                else:
-                    as_of_label = "Balance"
-
+            opening_balance = 0.0
+            if record.date_from:
+                opening_domain = list(base_domain)
+                opening_domain.append(('date', '<', record.date_from))
                 opening_lines = AccountMoveLine.search(opening_domain)
-                balance = 0.0
                 for ol in opening_lines:
-                    balance += (ol.debit or 0.0) - (ol.credit or 0.0)
+                    opening_balance += (ol.debit or 0.0) - (ol.credit or 0.0)
 
-                # Account header row
-                sheet.write(row, 0, f"{account.code} - {account.name}", bold)
-                row += 1
+            # ---------------------------------------------------------
+            # 2) Period transactions domain
+            # ---------------------------------------------------------
+            period_domain = list(base_domain)
+            if record.date_from:
+                period_domain.append(('date', '>=', record.date_from))
+            if record.date_to:
+                period_domain.append(('date', '<=', record.date_to))
 
-                # Single summary row: only balance, no movement
-                sheet.write(row, 0, "")           # Account column empty (header above)
-                sheet.write(row, 1, "")           # Date empty
-                sheet.write(row, 2, as_of_label)  # Label: "Balance as of ..."
-                sheet.write(row, 3, "")           # Product Group
-                sheet.write(row, 4, "")           # Counter Account
-                sheet.write_number(row, 5, 0.0, money)  # Debit
-                sheet.write_number(row, 6, 0.0, money)  # Credit
-                sheet.write_number(row, 7, balance, money)  # Balance
-                row += 1
+            move_lines = AccountMoveLine.search(period_domain, order='date, id')
 
-                row += 1  # Blank line between accounts
+            # If no period moves and no date filter at all → skip (as in model)
+            if not move_lines and not (record.date_from or record.date_to):
                 continue
 
             # ---------------------------------------------------------
-            # Case 2: Account has transactions in the period (original logic)
+            # 3) Account header row (always for included accounts)
             # ---------------------------------------------------------
-
-            # Account header row
             sheet.write(row, 0, f"{account.code} - {account.name}", bold)
             row += 1
 
-            balance = 0.0
+            # ---------------------------------------------------------
+            # 4) Detail rows for the period (running period balance)
+            # ---------------------------------------------------------
+            period_balance = 0.0
+
             for line in move_lines:
                 label = line.name or line.move_id.name or ""
                 product_group = (
@@ -120,12 +93,15 @@ class GeneralLedgerXlsxController(http.Controller):
                     lambda l: l != line and l.account_id != line.account_id
                 )
                 counter = ', '.join(
-                    set(f"{l.account_id.code} - {l.account_id.name}" for l in counter_accounts)
+                    set(
+                        f"{l.account_id.code} - {l.account_id.name}"
+                        for l in counter_accounts
+                    )
                 )
 
                 amount_dr = line.debit or 0.0
                 amount_cr = line.credit or 0.0
-                balance += amount_dr - amount_cr
+                period_balance += amount_dr - amount_cr
 
                 sheet.write(row, 0, "")  # Empty cell instead of account name
                 sheet.write(row, 1, str(line.date))
@@ -134,8 +110,26 @@ class GeneralLedgerXlsxController(http.Controller):
                 sheet.write(row, 4, counter)
                 sheet.write_number(row, 5, amount_dr, money)
                 sheet.write_number(row, 6, amount_cr, money)
-                sheet.write_number(row, 7, balance, money)
+                sheet.write_number(row, 7, period_balance, money)
                 row += 1
+
+            # ---------------------------------------------------------
+            # 5) Summary row: Opening in Label, Closing as text in Balance
+            # ---------------------------------------------------------
+            closing_balance = opening_balance + period_balance
+
+            opening_text = f"Opening: {opening_balance:,.2f}"
+            closing_text = f"Closing: {closing_balance:,.2f}"
+
+            sheet.write(row, 0, "")          # Account col empty (header above)
+            sheet.write(row, 1, "")          # Date
+            sheet.write(row, 2, opening_text)  # Label: Opening
+            sheet.write(row, 3, "")          # Product Group
+            sheet.write(row, 4, "")          # Counter Account
+            sheet.write_number(row, 5, 0.0, money)  # Debit
+            sheet.write_number(row, 6, 0.0, money)  # Credit
+            sheet.write(row, 7, closing_text)       # Balance col: "Closing: xxx"
+            row += 1
 
             row += 1  # Blank line between accounts
 
@@ -151,3 +145,4 @@ class GeneralLedgerXlsxController(http.Controller):
             ]
         )
 # date filter wont discard account without transaction
+# opening and closing balance at the end row
