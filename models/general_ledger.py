@@ -32,13 +32,13 @@ class GeneralLedger(models.Model):
                 "account": 30,
                 "date": 14,
                 "ref": 22,
-                "label": 28,
+                "label": 25,
                 "group": 28,
                 "partner": 28,
-                "counter": 40,
-                "amount_dr": 15,
-                "amount_cr": 15,
-                "balance": 15,
+                "counter": 38,
+                "amount_dr": 13,
+                "amount_cr": 13,
+                "balance": 30,
             }
 
             breakdown = []
