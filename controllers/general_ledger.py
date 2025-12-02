@@ -3,6 +3,7 @@ from odoo.http import request
 import io
 import xlsxwriter
 
+
 class GeneralLedgerXlsxController(http.Controller):
 
     @http.route('/general_ledger/export_xlsx', type='http', auth='user')
@@ -37,15 +38,71 @@ class GeneralLedgerXlsxController(http.Controller):
         )
 
         for account in accounts:
-            domain = [('account_id', '=', account.id), ('move_id.state', '=', 'posted')]
+            # Domain for period transactions
+            domain = [
+                ('account_id', '=', account.id),
+                ('move_id.state', '=', 'posted'),
+            ]
             if record.date_from:
                 domain.append(('date', '>=', record.date_from))
             if record.date_to:
                 domain.append(('date', '<=', record.date_to))
+            if getattr(record, 'partner_id', False):
+                domain.append(('partner_id', '=', record.partner_id.id))
 
             move_lines = AccountMoveLine.search(domain, order='date, id')
+
+            # ---------------------------------------------------------
+            # Case 1: No transactions in the period → still show balance
+            # ---------------------------------------------------------
             if not move_lines:
+                # Keep original behavior if there is no date filter at all
+                if not (record.date_from or record.date_to):
+                    continue
+
+                # Compute balance as of date_to (or before date_from) like in the model
+                opening_domain = [
+                    ('account_id', '=', account.id),
+                    ('move_id.state', '=', 'posted'),
+                ]
+                if getattr(record, 'partner_id', False):
+                    opening_domain.append(('partner_id', '=', record.partner_id.id))
+
+                if record.date_to:
+                    opening_domain.append(('date', '<=', record.date_to))
+                    as_of_label = f"Balance as of {record.date_to}"
+                elif record.date_from:
+                    opening_domain.append(('date', '<', record.date_from))
+                    as_of_label = f"Balance as of {record.date_from}"
+                else:
+                    as_of_label = "Balance"
+
+                opening_lines = AccountMoveLine.search(opening_domain)
+                balance = 0.0
+                for ol in opening_lines:
+                    balance += (ol.debit or 0.0) - (ol.credit or 0.0)
+
+                # Account header row
+                sheet.write(row, 0, f"{account.code} - {account.name}", bold)
+                row += 1
+
+                # Single summary row: only balance, no movement
+                sheet.write(row, 0, "")           # Account column empty (header above)
+                sheet.write(row, 1, "")           # Date empty
+                sheet.write(row, 2, as_of_label)  # Label: "Balance as of ..."
+                sheet.write(row, 3, "")           # Product Group
+                sheet.write(row, 4, "")           # Counter Account
+                sheet.write_number(row, 5, 0.0, money)  # Debit
+                sheet.write_number(row, 6, 0.0, money)  # Credit
+                sheet.write_number(row, 7, balance, money)  # Balance
+                row += 1
+
+                row += 1  # Blank line between accounts
                 continue
+
+            # ---------------------------------------------------------
+            # Case 2: Account has transactions in the period (original logic)
+            # ---------------------------------------------------------
 
             # Account header row
             sheet.write(row, 0, f"{account.code} - {account.name}", bold)
@@ -93,3 +150,4 @@ class GeneralLedgerXlsxController(http.Controller):
                 ('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             ]
         )
+# date filter wont discard account without transaction
