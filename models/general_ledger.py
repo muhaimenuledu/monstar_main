@@ -44,102 +44,41 @@ class GeneralLedger(models.Model):
             breakdown = []
 
             for account in accounts:
-                # Domain for transactions in the selected period
-                domain = [
+                # ---------------------------------------------------------
+                # 1) Base domain and opening balance
+                # ---------------------------------------------------------
+                base_domain = [
                     ('account_id', '=', account.id),
                     ('move_id.state', '=', 'posted'),
                 ]
-                if rec.date_from:
-                    domain.append(('date', '>=', rec.date_from))
-                if rec.date_to:
-                    domain.append(('date', '<=', rec.date_to))
                 if rec.partner_id:
-                    domain.append(('partner_id', '=', rec.partner_id.id))
+                    base_domain.append(('partner_id', '=', rec.partner_id.id))
 
-                move_lines = AccountMoveLine.search(domain, order='date, id')
-
-                # ---------------------------------------------------------
-                # Case 1: No transactions in the period → still show balance
-                # ---------------------------------------------------------
-                if not move_lines:
-                    # Only change behavior when there is some date filter.
-                    if not (rec.date_from or rec.date_to):
-                        # Without any date filter, we keep the original behavior:
-                        # accounts with no lines are skipped.
-                        continue
-
-                    # Compute balance as of the relevant date
-                    opening_domain = [
-                        ('account_id', '=', account.id),
-                        ('move_id.state', '=', 'posted'),
-                    ]
-                    if rec.partner_id:
-                        opening_domain.append(('partner_id', '=', rec.partner_id.id))
-
-                    # Prefer date_to if present (balance up to that date),
-                    # otherwise use date_from (balance before that start).
-                    if rec.date_to:
-                        opening_domain.append(('date', '<=', rec.date_to))
-                        as_of_label = f"Balance as of {rec.date_to}"
-                    elif rec.date_from:
-                        opening_domain.append(('date', '<', rec.date_from))
-                        as_of_label = f"Balance as of {rec.date_from}"
-                    else:
-                        as_of_label = "Balance"
-
+                # Opening balance: all entries before date_from, else 0
+                opening_balance = 0.0
+                if rec.date_from:
+                    opening_domain = base_domain + [('date', '<', rec.date_from)]
                     opening_lines = AccountMoveLine.search(opening_domain)
-                    balance = 0.0
                     for ol in opening_lines:
-                        balance += (ol.debit or 0.0) - (ol.credit or 0.0)
+                        opening_balance += (ol.debit or 0.0) - (ol.credit or 0.0)
 
-                    # Account header
-                    breakdown.append(
-                        f"ACCOUNT_HEADER||Account: {account.code} - {account.name}"
-                    )
+                # ---------------------------------------------------------
+                # 2) Period transactions domain (the rows you already show)
+                # ---------------------------------------------------------
+                period_domain = list(base_domain)
+                if rec.date_from:
+                    period_domain.append(('date', '>=', rec.date_from))
+                if rec.date_to:
+                    period_domain.append(('date', '<=', rec.date_to))
 
-                    # Table header
-                    header = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
-                        account="Account".center(widths["account"]),
-                        date="Date".center(widths["date"]),
-                        ref="V. No./Ref".center(widths["ref"]),
-                        label="Label".center(widths["label"]),
-                        group="Product Group".center(widths["group"]),
-                        partner="Partner".center(widths["partner"]),
-                        counter="Counter Account".center(widths["counter"]),
-                        amount_dr="Amount Dr.".center(widths["amount_dr"]),
-                        amount_cr="Amount Cr.".center(widths["amount_cr"]),
-                        balance="Balance".center(widths["balance"]),
-                    )
-                    breakdown.append(header)
+                move_lines = AccountMoveLine.search(period_domain, order='date, id')
 
-                    # Single row showing only the balance
-                    partner_name = (
-                        (rec.partner_id.name or "")[:widths["partner"]]
-                        if rec.partner_id
-                        else ""
-                    )
-
-                    row = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
-                        account=f"{account.code} - {account.name}"[
-                            :widths["account"]
-                        ].ljust(widths["account"]),
-                        date="".ljust(widths["date"]),
-                        ref="".ljust(widths["ref"]),
-                        label=as_of_label[:widths["label"]].ljust(widths["label"]),
-                        group="".ljust(widths["group"]),
-                        partner=partner_name.ljust(widths["partner"]),
-                        counter="".ljust(widths["counter"]),
-                        amount_dr="{:,.2f}".format(0.0).rjust(widths["amount_dr"]),
-                        amount_cr="{:,.2f}".format(0.0).rjust(widths["amount_cr"]),
-                        balance="{:,.2f}".format(balance).rjust(widths["balance"]),
-                    )
-                    breakdown.append(row)
-
-                    # Skip the normal "detail lines" block for this account
+                # If no period moves and no date filter at all → keep old behavior: skip
+                if not move_lines and not (rec.date_from or rec.date_to):
                     continue
 
                 # ---------------------------------------------------------
-                # Case 2: Account has transactions in the period (original logic)
+                # 3) Add account header + table header (always)
                 # ---------------------------------------------------------
                 breakdown.append(
                     f"ACCOUNT_HEADER||Account: {account.code} - {account.name}"
@@ -159,7 +98,11 @@ class GeneralLedger(models.Model):
                 )
                 breakdown.append(header)
 
-                balance = 0.0
+                # ---------------------------------------------------------
+                # 4) Detail rows for the period (unchanged logic)
+                #     - "balance" here is PERIOD balance only.
+                # ---------------------------------------------------------
+                period_balance = 0.0
 
                 for line in move_lines:
                     move = line.move_id
@@ -189,7 +132,7 @@ class GeneralLedger(models.Model):
 
                     amount_dr = line.debit or 0.0
                     amount_cr = line.credit or 0.0
-                    balance += amount_dr - amount_cr
+                    period_balance += amount_dr - amount_cr
 
                     row = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
                         account=f"{account.code} - {account.name}"[
@@ -207,9 +150,49 @@ class GeneralLedger(models.Model):
                         amount_cr="{:,.2f}".format(amount_cr).rjust(
                             widths["amount_cr"]
                         ),
-                        balance="{:,.2f}".format(balance).rjust(widths["balance"]),
+                        balance="{:,.2f}".format(period_balance).rjust(
+                            widths["balance"]
+                        ),
                     )
                     breakdown.append(row)
+
+                # ---------------------------------------------------------
+                # 5) Summary row at bottom: Opening in label, Closing text in last col
+                # ---------------------------------------------------------
+                closing_balance = opening_balance + period_balance
+
+                # Only Opening in the label column
+                summary_label = (
+                    f"Opening: {opening_balance:,.2f}"
+                )[:widths["label"]]
+
+                # Partner name (if filtered by partner)
+                summary_partner = (
+                    (rec.partner_id.name or "")[:widths["partner"]]
+                    if rec.partner_id
+                    else ""
+                )
+
+                # Last column shows "Closing: xxx"
+                closing_text = (
+                    f"Closing: {closing_balance:,.2f}"
+                )[:widths["balance"]].rjust(widths["balance"])
+
+                summary_row = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
+                    account=f"{account.code} - {account.name}"[
+                        :widths["account"]
+                    ].ljust(widths["account"]),
+                    date="".ljust(widths["date"]),
+                    ref="".ljust(widths["ref"]),
+                    label=summary_label.ljust(widths["label"]),
+                    group="".ljust(widths["group"]),
+                    partner=summary_partner.ljust(widths["partner"]),
+                    counter="".ljust(widths["counter"]),
+                    amount_dr="{:,.2f}".format(0.0).rjust(widths["amount_dr"]),
+                    amount_cr="{:,.2f}".format(0.0).rjust(widths["amount_cr"]),
+                    balance=closing_text,
+                )
+                breakdown.append(summary_row)
 
             # Build HTML from breakdown
             html = "<h3>General Ledger - Journal Entry Breakdown by Account</h3>"
@@ -243,4 +226,6 @@ class GeneralLedger(models.Model):
             'url': '/general_ledger/export_xlsx?record_id=%s' % self.id,
             'target': 'self',
         }
+
 # date filter wont discard account without transaction
+# opening and closing balance at the end row
