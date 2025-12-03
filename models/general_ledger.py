@@ -101,8 +101,10 @@ class GeneralLedger(models.Model):
                 # ---------------------------------------------------------
                 # 4) Detail rows for the period (unchanged logic)
                 #     - "balance" here is PERIOD balance only.
+                #     - We collect rows first, then prepend the summary row.
                 # ---------------------------------------------------------
                 period_balance = 0.0
+                account_rows = []  # temp storage for this account's transaction rows
 
                 for line in move_lines:
                     move = line.move_id
@@ -154,45 +156,47 @@ class GeneralLedger(models.Model):
                             widths["balance"]
                         ),
                     )
-                    breakdown.append(row)
+                    account_rows.append(row)
 
                 # ---------------------------------------------------------
-                # 5) Summary row at bottom: Opening in label, Closing text in last col
+                # 5) Summary row at TOP: Opening in label, Closing text in last col
                 # ---------------------------------------------------------
                 closing_balance = opening_balance + period_balance
 
-                # Only Opening in the label column
                 summary_label = (
-                    f"Opening: {opening_balance:,.2f}"
+                    f"Opening Balance: {opening_balance:,.2f}"
                 )[:widths["label"]]
 
-                # Partner name (if filtered by partner)
                 summary_partner = (
                     (rec.partner_id.name or "")[:widths["partner"]]
                     if rec.partner_id
                     else ""
                 )
 
-                # Last column shows "Closing: xxx"
                 closing_text = (
                     f"Closing: {closing_balance:,.2f}"
                 )[:widths["balance"]].rjust(widths["balance"])
 
-                summary_row = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
-                    account=f"{account.code} - {account.name}"[
-                        :widths["account"]
-                    ].ljust(widths["account"]),
+                summary_row = "| {account} | {date} | {ref} | {amount_cr} | {group} | {partner} | {counter} | {amount_dr} | {label} | {balance} |".format(
+                    account=f"{account.code} - {account.name}"[:widths["account"]].ljust(widths["account"]),
                     date="".ljust(widths["date"]),
                     ref="".ljust(widths["ref"]),
                     label=summary_label.ljust(widths["label"]),
                     group="".ljust(widths["group"]),
                     partner=summary_partner.ljust(widths["partner"]),
                     counter="".ljust(widths["counter"]),
-                    amount_dr="{:,.2f}".format(0.0).rjust(widths["amount_dr"]),
-                    amount_cr="{:,.2f}".format(0.0).rjust(widths["amount_cr"]),
+
+                    # Empty Dr/Cr columns (as requested)
+                    amount_dr="".rjust(widths["amount_dr"]),
+                    amount_cr="".rjust(widths["amount_cr"]),
+
+                    # Closing balance stays
                     balance=closing_text,
                 )
+
+                # First the summary row, then all the transaction rows
                 breakdown.append(summary_row)
+                breakdown.extend(account_rows)
 
             # Build HTML from breakdown
             html = "<h3>General Ledger - Journal Entry Breakdown by Account</h3>"
@@ -226,6 +230,3 @@ class GeneralLedger(models.Model):
             'url': '/general_ledger/export_xlsx?record_id=%s' % self.id,
             'target': 'self',
         }
-
-# date filter wont discard account without transaction
-# opening and closing balance at the end row
