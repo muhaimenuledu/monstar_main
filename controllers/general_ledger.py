@@ -79,8 +79,12 @@ class GeneralLedgerXlsxController(http.Controller):
 
             # ---------------------------------------------------------
             # 4) Detail rows for the period (running period balance)
+            #     + accumulate period debit/credit totals
             # ---------------------------------------------------------
             period_balance = 0.0
+            period_debit_total = 0.0
+            period_credit_total = 0.0
+            account_rows = []
 
             for line in move_lines:
                 label = line.name or line.move_id.name or ""
@@ -102,33 +106,63 @@ class GeneralLedgerXlsxController(http.Controller):
                 amount_dr = line.debit or 0.0
                 amount_cr = line.credit or 0.0
                 period_balance += amount_dr - amount_cr
+                period_debit_total += amount_dr
+                period_credit_total += amount_cr
 
-                sheet.write(row, 0, "")  # Empty cell instead of account name
-                sheet.write(row, 1, str(line.date))
-                sheet.write(row, 2, label)
-                sheet.write(row, 3, product_group)
-                sheet.write(row, 4, counter)
-                sheet.write_number(row, 5, amount_dr, money)
-                sheet.write_number(row, 6, amount_cr, money)
-                sheet.write_number(row, 7, period_balance, money)
-                row += 1
+                # Store the row to write later (after summary)
+                account_rows.append({
+                    'date': str(line.date),
+                    'label': label,
+                    'product_group': product_group,
+                    'counter': counter,
+                    'debit': amount_dr,
+                    'credit': amount_cr,
+                    'balance': period_balance,
+                })
 
             # ---------------------------------------------------------
-            # 5) Summary row: Opening in Label, Closing as text in Balance
+            # 5) Summary row at TOP: Opening in Label, Closing text in Balance
             # ---------------------------------------------------------
             closing_balance = opening_balance + period_balance
 
-            opening_text = f"Opening: {opening_balance:,.2f}"
+            opening_text = f"Opening Balance: {opening_balance:,.2f}"
             closing_text = f"Closing: {closing_balance:,.2f}"
 
-            sheet.write(row, 0, "")          # Account col empty (header above)
-            sheet.write(row, 1, "")          # Date
-            sheet.write(row, 2, opening_text)  # Label: Opening
-            sheet.write(row, 3, "")          # Product Group
-            sheet.write(row, 4, "")          # Counter Account
-            sheet.write_number(row, 5, 0.0, money)  # Debit
-            sheet.write_number(row, 6, 0.0, money)  # Credit
-            sheet.write(row, 7, closing_text)       # Balance col: "Closing: xxx"
+            sheet.write(row, 0, "")                 # Account col empty (header above)
+            sheet.write(row, 1, "")                 # Date
+            sheet.write(row, 2, opening_text)       # Label
+            sheet.write(row, 3, "")                 # Product Group
+            sheet.write(row, 4, "")                 # Counter Account
+            sheet.write(row, 5, "")                 # Debit empty
+            sheet.write(row, 6, "")                 # Credit empty
+            sheet.write(row, 7, closing_text)       # Balance: "Closing: xxx"
+            row += 1
+
+            # ---------------------------------------------------------
+            # 6) Now write all transaction rows
+            # ---------------------------------------------------------
+            for r in account_rows:
+                sheet.write(row, 0, "")
+                sheet.write(row, 1, r['date'])
+                sheet.write(row, 2, r['label'])
+                sheet.write(row, 3, r['product_group'])
+                sheet.write(row, 4, r['counter'])
+                sheet.write_number(row, 5, r['debit'], money)
+                sheet.write_number(row, 6, r['credit'], money)
+                sheet.write_number(row, 7, r['balance'], money)
+                row += 1
+
+            # ---------------------------------------------------------
+            # 7) Bottom total row: period totals + closing balance
+            # ---------------------------------------------------------
+            sheet.write(row, 0, "")                    # Account
+            sheet.write(row, 1, "")                    # Date
+            sheet.write(row, 2, "Total")               # Label
+            sheet.write(row, 3, "")                    # Product Group
+            sheet.write(row, 4, "")                    # Counter Account
+            sheet.write_number(row, 5, period_debit_total, money)
+            sheet.write_number(row, 6, period_credit_total, money)
+            sheet.write_number(row, 7, closing_balance, money)
             row += 1
 
             row += 1  # Blank line between accounts
@@ -144,5 +178,6 @@ class GeneralLedgerXlsxController(http.Controller):
                 ('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             ]
         )
-# date filter wont discard account without transaction
-# opening and closing balance at the end row
+
+# balance at top
+# dr/cr at bottom
