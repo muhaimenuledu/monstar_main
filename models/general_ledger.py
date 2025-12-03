@@ -99,11 +99,13 @@ class GeneralLedger(models.Model):
                 breakdown.append(header)
 
                 # ---------------------------------------------------------
-                # 4) Detail rows for the period (unchanged logic)
+                # 4) Detail rows for the period
                 #     - "balance" here is PERIOD balance only.
                 #     - We collect rows first, then prepend the summary row.
                 # ---------------------------------------------------------
                 period_balance = 0.0
+                period_debit_total = 0.0      # NEW
+                period_credit_total = 0.0     # NEW
                 account_rows = []  # temp storage for this account's transaction rows
 
                 for line in move_lines:
@@ -135,6 +137,8 @@ class GeneralLedger(models.Model):
                     amount_dr = line.debit or 0.0
                     amount_cr = line.credit or 0.0
                     period_balance += amount_dr - amount_cr
+                    period_debit_total += amount_dr      # NEW
+                    period_credit_total += amount_cr      # NEW
 
                     row = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
                         account=f"{account.code} - {account.name}"[
@@ -185,18 +189,38 @@ class GeneralLedger(models.Model):
                     group="".ljust(widths["group"]),
                     partner=summary_partner.ljust(widths["partner"]),
                     counter="".ljust(widths["counter"]),
-
-                    # Empty Dr/Cr columns (as requested)
-                    amount_dr="".rjust(widths["amount_dr"]),
-                    amount_cr="".rjust(widths["amount_cr"]),
-
-                    # Closing balance stays
+                    amount_dr="".rjust(widths["amount_dr"]),   # empty Dr
+                    amount_cr="".rjust(widths["amount_cr"]),   # empty Cr
                     balance=closing_text,
                 )
 
                 # First the summary row, then all the transaction rows
                 breakdown.append(summary_row)
                 breakdown.extend(account_rows)
+
+                # ---------------------------------------------------------
+                # 6) NEW: Total row at bottom (period totals + closing balance)
+                # ---------------------------------------------------------
+                total_label = "Total".ljust(widths["label"])
+                total_row = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
+                    account="".ljust(widths["account"]),
+                    date="".ljust(widths["date"]),
+                    ref="".ljust(widths["ref"]),
+                    label=total_label,
+                    group="".ljust(widths["group"]),
+                    partner="".ljust(widths["partner"]),
+                    counter="".ljust(widths["counter"]),
+                    amount_dr="{:,.2f}".format(period_debit_total).rjust(
+                        widths["amount_dr"]
+                    ),
+                    amount_cr="{:,.2f}".format(period_credit_total).rjust(
+                        widths["amount_cr"]
+                    ),
+                    balance="{:,.2f}".format(closing_balance).rjust(
+                        widths["balance"]
+                    ),
+                )
+                breakdown.append(total_row)
 
             # Build HTML from breakdown
             html = "<h3>General Ledger - Journal Entry Breakdown by Account</h3>"
@@ -230,3 +254,5 @@ class GeneralLedger(models.Model):
             'url': '/general_ledger/export_xlsx?record_id=%s' % self.id,
             'target': 'self',
         }
+# balance at top
+# dr/cr at bottom
