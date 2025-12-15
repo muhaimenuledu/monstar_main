@@ -39,6 +39,7 @@ class GeneralLedger(models.Model):
                 "amount_dr": 13,
                 "amount_cr": 13,
                 "balance": 30,
+                "open" : 40,
             }
 
             breakdown = []
@@ -194,11 +195,11 @@ class GeneralLedger(models.Model):
                     f"Closing: {closing_balance:,.2f}"
                 )[:widths["balance"]].rjust(widths["balance"])
 
-                summary_row = "| {account} | {date} | {ref} | {amount_cr} | {group} | {partner} | {counter} | {amount_dr} | {label} | {balance} |".format(
+                summary_row = "| {account} | {date} | {ref} | {amount_cr} | {group} | {partner} | {label} |{amount_dr} | {balance} |".format(
                     account=f"{account.code} - {account.name}"[:widths["account"]].ljust(widths["account"]),
                     date="".ljust(widths["date"]),
                     ref="".ljust(widths["ref"]),
-                    label=summary_label.ljust(widths["label"]),
+                    label=summary_label.ljust(widths["open"]),
                     group="".ljust(widths["group"]),
                     partner=summary_partner.ljust(widths["partner"]),
                     counter="".ljust(widths["counter"]),
