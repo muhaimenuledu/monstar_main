@@ -183,7 +183,7 @@ class GeneralLedger(models.Model):
 
                 summary_label = (
                     f"Opening Balance: {opening_balance:,.2f}"
-                )[:widths["label"]]
+                )[:widths["open"]].rjust(widths["open"])
 
                 summary_partner = (
                     (rec.partner_id.name or "")[:widths["partner"]]
@@ -195,11 +195,11 @@ class GeneralLedger(models.Model):
                     f"Closing: {closing_balance:,.2f}"
                 )[:widths["balance"]].rjust(widths["balance"])
 
-                summary_row = "| {account} | {date} | {ref} | {amount_cr} | {group} | {partner} | {label} |{amount_dr} | {balance} |".format(
+                summary_row = "| {account} | {date} | {ref} | {amount_cr} | {group} | {partner} | {amount_dr} | {amount_dr} |{label} | {balance} |".format(
                     account=f"{account.code} - {account.name}"[:widths["account"]].ljust(widths["account"]),
                     date="".ljust(widths["date"]),
                     ref="".ljust(widths["ref"]),
-                    label=summary_label.ljust(widths["open"]),
+                    label=summary_label,
                     group="".ljust(widths["group"]),
                     partner=summary_partner.ljust(widths["partner"]),
                     counter="".ljust(widths["counter"]),
