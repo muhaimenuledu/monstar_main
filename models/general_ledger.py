@@ -100,13 +100,18 @@ class GeneralLedger(models.Model):
 
                 # ---------------------------------------------------------
                 # 4) Detail rows for the period
-                #     - "balance" here is PERIOD balance only.
-                #     - We collect rows first, then prepend the summary row.
+                #     - "period_balance" stays PERIOD-only (used for closing, totals).
+                #     - NEW: "running_balance" starts from opening_balance,
+                #       so each transaction row shows Opening + Period movement.
                 # ---------------------------------------------------------
                 period_balance = 0.0
-                period_debit_total = 0.0      # NEW
-                period_credit_total = 0.0     # NEW
+                period_debit_total = 0.0
+                period_credit_total = 0.0
                 account_rows = []  # temp storage for this account's transaction rows
+
+                # ✅ NEW CHANGE START: running balance begins from opening
+                running_balance = opening_balance
+                # ✅ NEW CHANGE END
 
                 for line in move_lines:
                     move = line.move_id
@@ -136,9 +141,15 @@ class GeneralLedger(models.Model):
 
                     amount_dr = line.debit or 0.0
                     amount_cr = line.credit or 0.0
-                    period_balance += amount_dr - amount_cr
-                    period_debit_total += amount_dr      # NEW
-                    period_credit_total += amount_cr      # NEW
+
+                    # ✅ NEW CHANGE START: use delta and update BOTH balances
+                    delta = amount_dr - amount_cr
+                    period_balance += delta          # period-only (keep old behavior)
+                    running_balance += delta         # opening + period (NEW)
+                    # ✅ NEW CHANGE END
+
+                    period_debit_total += amount_dr
+                    period_credit_total += amount_cr
 
                     row = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
                         account=f"{account.code} - {account.name}"[
@@ -156,9 +167,11 @@ class GeneralLedger(models.Model):
                         amount_cr="{:,.2f}".format(amount_cr).rjust(
                             widths["amount_cr"]
                         ),
-                        balance="{:,.2f}".format(period_balance).rjust(
+                        # ✅ NEW CHANGE START: show running_balance (opening + period)
+                        balance="{:,.2f}".format(running_balance).rjust(
                             widths["balance"]
                         ),
+                        # ✅ NEW CHANGE END
                     )
                     account_rows.append(row)
 
@@ -199,7 +212,7 @@ class GeneralLedger(models.Model):
                 breakdown.extend(account_rows)
 
                 # ---------------------------------------------------------
-                # 6) NEW: Total row at bottom (period totals + closing balance)
+                # 6) Total row at bottom (period totals + closing balance)
                 # ---------------------------------------------------------
                 total_label = "Total".ljust(widths["label"])
                 total_row = "| {account} | {date} | {ref} | {label} | {group} | {partner} | {counter} | {amount_dr} | {amount_cr} | {balance} |".format(
@@ -254,5 +267,5 @@ class GeneralLedger(models.Model):
             'url': '/general_ledger/export_xlsx?record_id=%s' % self.id,
             'target': 'self',
         }
-# balance at top
-# dr/cr at bottom
+
+# adding opening balance
