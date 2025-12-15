@@ -78,13 +78,19 @@ class GeneralLedgerXlsxController(http.Controller):
             row += 1
 
             # ---------------------------------------------------------
-            # 4) Detail rows for the period (running period balance)
-            #     + accumulate period debit/credit totals
+            # 4) Detail rows for the period
+            #     period_balance = period-only (kept for totals/closing)
+            #     ✅ NEW: running_balance starts from opening_balance so
+            #     each transaction row shows Opening + Period movement.
             # ---------------------------------------------------------
             period_balance = 0.0
             period_debit_total = 0.0
             period_credit_total = 0.0
             account_rows = []
+
+            # ✅ NEW CHANGE START: running balance begins from opening
+            running_balance = opening_balance
+            # ✅ NEW CHANGE END
 
             for line in move_lines:
                 label = line.name or line.move_id.name or ""
@@ -105,7 +111,13 @@ class GeneralLedgerXlsxController(http.Controller):
 
                 amount_dr = line.debit or 0.0
                 amount_cr = line.credit or 0.0
-                period_balance += amount_dr - amount_cr
+
+                # ✅ NEW CHANGE START: update BOTH period_balance and running_balance
+                delta = amount_dr - amount_cr
+                period_balance += delta           # period-only (for totals/closing)
+                running_balance += delta          # opening + period (for row balance)
+                # ✅ NEW CHANGE END
+
                 period_debit_total += amount_dr
                 period_credit_total += amount_cr
 
@@ -117,7 +129,8 @@ class GeneralLedgerXlsxController(http.Controller):
                     'counter': counter,
                     'debit': amount_dr,
                     'credit': amount_cr,
-                    'balance': period_balance,
+                    # ✅ NEW CHANGE: store running balance (opening + period)
+                    'balance': running_balance,
                 })
 
             # ---------------------------------------------------------
@@ -139,7 +152,7 @@ class GeneralLedgerXlsxController(http.Controller):
             row += 1
 
             # ---------------------------------------------------------
-            # 6) Now write all transaction rows
+            # 6) Now write all transaction rows (with running balance)
             # ---------------------------------------------------------
             for r in account_rows:
                 sheet.write(row, 0, "")
@@ -149,7 +162,7 @@ class GeneralLedgerXlsxController(http.Controller):
                 sheet.write(row, 4, r['counter'])
                 sheet.write_number(row, 5, r['debit'], money)
                 sheet.write_number(row, 6, r['credit'], money)
-                sheet.write_number(row, 7, r['balance'], money)
+                sheet.write_number(row, 7, r['balance'], money)  # opening+period
                 row += 1
 
             # ---------------------------------------------------------
@@ -181,3 +194,4 @@ class GeneralLedgerXlsxController(http.Controller):
 
 # balance at top
 # dr/cr at bottom
+#adding opening blnc
