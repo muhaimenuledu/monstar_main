@@ -238,8 +238,8 @@ class GeneralLedger(models.Model):
             # Build HTML from breakdown
             html = "<h3>General Ledger - Journal Entry Breakdown by Account</h3>"
             html += (
-                "<table border='1' cellpadding='3' cellspacing='0' "
-                "style='border-collapse: collapse; font-size: 12px; width: 100%;'>"
+                "<table border='1' cellpadding='2' cellspacing='0' "
+                "style='border-collapse: collapse; font-size: 11px; width: 100%;'>"
             )
 
             for line in breakdown:
