@@ -38,6 +38,7 @@
                 </header>
                 <sheet>
                     <group>
+                        <field name="company_id" options="{'no_create': True}"/>
                         <field name="date_from"/>
                         <field name="date_to"/>
                         <field name="partner_id"/>
