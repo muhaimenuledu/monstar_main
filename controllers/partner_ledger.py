@@ -36,10 +36,9 @@ class PartnerLedgerExportController(http.Controller):
             base_domain.append(('product_id.categ_id', '=', record.product_categ_id.id))
         if record.partner_id:
             base_domain.append(('partner_id', '=', record.partner_id.id))
-
-        opening_domain = list(base_domain)
-        if record.date_from:
-            opening_domain.append(('date', '<', record.date_from))
+        # NEW: restrict all move lines to the selected company
+        if getattr(record, 'company_id', False):
+            base_domain.append(('company_id', '=', record.company_id.id))
 
         trx_domain = list(base_domain)
         if record.date_from:
@@ -47,7 +46,17 @@ class PartnerLedgerExportController(http.Controller):
         if record.date_to:
             trx_domain.append(('date', '<=', record.date_to))
 
-        opening_lines = AccountMoveLine.search(opening_domain)
+        # Opening balance only makes sense when there is a start date to
+        # open "from". Without date_from, opening_domain would be identical
+        # to trx_domain and every line would be counted twice (once as
+        # opening, once as debit/credit) - so skip it entirely.
+        if record.date_from:
+            opening_domain = list(base_domain)
+            opening_domain.append(('date', '<', record.date_from))
+            opening_lines = AccountMoveLine.search(opening_domain)
+        else:
+            opening_lines = AccountMoveLine.browse()
+
         trx_lines = AccountMoveLine.search(trx_domain)
 
         grouped_data = defaultdict(lambda: defaultdict(lambda: {
