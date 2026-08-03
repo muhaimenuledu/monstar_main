@@ -17,13 +17,18 @@ class PartyStockSummary(models.Model):
     )
     partner_id = fields.Many2one("res.partner", string="Partner (Optional)")
     product_id = fields.Many2one("product.product", string="Product (Optional)")
+    company_id = fields.Many2one(
+        "res.company",
+        string="Company",
+        default=lambda self: self.env.company,
+    )
     stock_summary_html = fields.Html(
         string="Partner Stock Summary",
         compute="_compute_stock_summary",
         store=False
     )
 
-    @api.depends("date_from", "date_to", "partner_id", "product_id")
+    @api.depends("date_from", "date_to", "partner_id", "product_id", "company_id")
     def _compute_stock_summary(self):
         SaleOrderLine = self.env["sale.order.line"].sudo()
         PurchaseOrderLine = self.env["purchase.order.line"].sudo()
@@ -46,6 +51,9 @@ class PartyStockSummary(models.Model):
             if rec.product_id:
                 sale_domain.append(("product_id", "=", rec.product_id.id))
                 purchase_domain.append(("product_id", "=", rec.product_id.id))
+            if rec.company_id:
+                sale_domain.append(("order_id.company_id", "=", rec.company_id.id))
+                purchase_domain.append(("order_id.company_id", "=", rec.company_id.id))
 
             sale_lines = SaleOrderLine.search(sale_domain)
             purchase_lines = PurchaseOrderLine.search(purchase_domain)
@@ -90,10 +98,8 @@ class PartyStockSummary(models.Model):
                 partner_sold_qty_total = 0.0
                 partner_sold_price_total = 0.0
 
-                # Wrap table in a div with margin-bottom
                 html_sections += "<div style='margin-bottom:20px;'>"
 
-                # Grey row for partner name
                 html_sections += (
                     "<table cellpadding='4' cellspacing='0' "
                     "style='border-collapse:collapse; font-size:12px; width:100%; text-align:left;'>"
@@ -104,7 +110,6 @@ class PartyStockSummary(models.Model):
                     f"</tr>"
                 )
 
-                # Column headers
                 html_sections += "<tr style='background:#f5f5f5; font-weight:bold;'>"
                 headers = ["Product", "Category", "Quantity Bought From", "Buying Price", "Quantity Sold To", "Selling Price"]
                 for idx, header in enumerate(headers):
@@ -130,7 +135,6 @@ class PartyStockSummary(models.Model):
                         html_sections += f"<td style='border:1px solid black; width:{column_widths[idx]};'>{cell}</td>"
                     html_sections += "</tr>"
 
-                # Partner total row
                 html_sections += "<tr style='background:white; font-weight:bold;'>"
                 total_cells = [
                     "Total:",
@@ -145,13 +149,12 @@ class PartyStockSummary(models.Model):
                 html_sections += "</tr>"
 
                 html_sections += "</table>"
-                html_sections += "</div>"  # margin-bottom wraps the table
+                html_sections += "</div>"
 
             rec.stock_summary_html = (
                 f"<div style='display:block; width:100%;'>{html_sections}</div>"
                 or "<p>No data found.</p>"
             )
-
 
     def action_export_xlsx(self):
         return {
