@@ -9,6 +9,12 @@ class GeneralLedger(models.Model):
     date_to = fields.Date(string="End Date")
     account_id = fields.Many2one('account.account', string="Filter by Account")
     partner_id = fields.Many2one('res.partner', string="Filter by Partner")
+    # ✅ NEW: company filter
+    company_id = fields.Many2one(
+        'res.company',
+        string="Filter by Company",
+        default=lambda self: self.env.company,
+    )
 
     journal_items = fields.Html(
         string="Journal Entry Breakdown by Account",
@@ -16,15 +22,20 @@ class GeneralLedger(models.Model):
         store=False,
     )
 
-    @api.depends('date_from', 'date_to', 'account_id', 'partner_id')
+    @api.depends('date_from', 'date_to', 'account_id', 'partner_id', 'company_id')
     def _compute_journal_breakdowns(self):
         AccountMoveLine = self.env['account.move.line'].sudo()
         Account = self.env['account.account'].sudo()
 
         for rec in self:
+            account_domain = [('id', '=', rec.account_id.id)] if rec.account_id else []
+            # ✅ NEW: restrict accounts to the selected company (falls back to all if none set)
+            if rec.company_id:
+                account_domain.append(('company_ids', 'in', rec.company_id.id))
+
             accounts = (
-                Account.search([('id', '=', rec.account_id.id)])
-                if rec.account_id
+                Account.search(account_domain, order='code')
+                if account_domain
                 else Account.search([], order='code')
             )
 
@@ -54,6 +65,9 @@ class GeneralLedger(models.Model):
                 ]
                 if rec.partner_id:
                     base_domain.append(('partner_id', '=', rec.partner_id.id))
+                # ✅ NEW: company filter applied to all move line searches
+                if rec.company_id:
+                    base_domain.append(('company_id', '=', rec.company_id.id))
 
                 # Opening balance: all entries before date_from, else 0
                 opening_balance = 0.0
