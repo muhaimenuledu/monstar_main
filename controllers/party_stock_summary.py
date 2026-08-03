@@ -20,7 +20,6 @@ class PartyStockSummaryExportController(http.Controller):
         money = workbook.add_format({'num_format': '#,##0.00'})
         total_format = workbook.add_format({'bold': True, 'bg_color': '#d1ecf1', 'num_format': '#,##0.00'})
 
-        # === Write header row ===
         row = 0
         sheet.write(row, 0, "Partner", bold)
         sheet.write(row, 1, "Product", bold)
@@ -34,7 +33,6 @@ class PartyStockSummaryExportController(http.Controller):
         SaleOrderLine = request.env["sale.order.line"].sudo()
         PurchaseOrderLine = request.env["purchase.order.line"].sudo()
 
-        # === Domains ===
         sale_domain = [("order_id.state", "in", ["sale", "done"])]
         purchase_domain = [("order_id.state", "in", ["purchase", "done"])]
 
@@ -50,11 +48,13 @@ class PartyStockSummaryExportController(http.Controller):
         if record.product_id:
             sale_domain.append(("product_id", "=", record.product_id.id))
             purchase_domain.append(("product_id", "=", record.product_id.id))
+        if record.company_id:
+            sale_domain.append(("order_id.company_id", "=", record.company_id.id))
+            purchase_domain.append(("order_id.company_id", "=", record.company_id.id))
 
         sale_lines = SaleOrderLine.search(sale_domain)
         purchase_lines = PurchaseOrderLine.search(purchase_domain)
 
-        # === Build summary dict ===
         summary = {}
         for line in sale_lines:
             partner, product = line.order_id.partner_id, line.product_id
@@ -78,26 +78,22 @@ class PartyStockSummaryExportController(http.Controller):
             summary[partner][product]["bought_qty"] += line.product_qty
             summary[partner][product]["bought_price"] += line.product_qty * line.price_unit
 
-        # === Write data ===
         for partner, products in summary.items():
-            # Initialize totals for this partner
             partner_bought_qty_total = 0.0
             partner_bought_price_total = 0.0
             partner_sold_qty_total = 0.0
             partner_sold_price_total = 0.0
-            
-            # Partner header row
+
             sheet.write(row, 0, partner.display_name, bold)
             row += 1
 
             for product, vals in products.items():
-                # Add to partner totals
                 partner_bought_qty_total += vals["bought_qty"]
                 partner_bought_price_total += vals["bought_price"]
                 partner_sold_qty_total += vals["sold_qty"]
                 partner_sold_price_total += vals["sold_price"]
-                
-                sheet.write(row, 0, "")  # partner column empty for detail rows
+
+                sheet.write(row, 0, "")
                 sheet.write(row, 1, product.display_name)
                 sheet.write(row, 2, product.categ_id.name or "N/A")
                 sheet.write(row, 3, vals["bought_qty"])
@@ -105,8 +101,7 @@ class PartyStockSummaryExportController(http.Controller):
                 sheet.write(row, 5, vals["sold_qty"])
                 sheet.write(row, 6, vals["sold_price"], money)
                 row += 1
-            
-            # Add summary row for this partner
+
             sheet.write(row, 0, "", total_format)
             sheet.write(row, 1, "Total", total_format)
             sheet.write(row, 2, "", total_format)
@@ -114,7 +109,7 @@ class PartyStockSummaryExportController(http.Controller):
             sheet.write(row, 4, partner_bought_price_total, total_format)
             sheet.write(row, 5, partner_sold_qty_total, total_format)
             sheet.write(row, 6, partner_sold_price_total, total_format)
-            row += 2  # blank line after each partner
+            row += 2
 
         workbook.close()
         output.seek(0)
