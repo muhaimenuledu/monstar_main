@@ -32,6 +32,8 @@
                     <field name="date_to"/>
                     <field name="product_categ_id"/>
                     <field name="partner_id"/>
+                    <!-- NEW: company filter -->
+                    <field name="company_id" groups="base.group_multi_company"/>
                 </group>
                 <field name="partner_journal_breakdown" widget="html"/>
             </sheet>
