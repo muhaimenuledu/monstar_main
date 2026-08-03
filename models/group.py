@@ -10,6 +10,14 @@ class GeneralLedger(models.Model):
     date_to = fields.Date(string="End Date")
     partner_id = fields.Many2one('res.partner', string="Partner")
 
+    company_id = fields.Many2one(
+        'res.company',
+        string="Company",
+        default=lambda self: self.env.company,
+        domain=lambda self: [('id', 'in', self.env.user.company_ids.ids)],
+        help="Filter partners and transactions by company"
+    )
+
     vendor_group = fields.Selection(
         selection=lambda self: self._get_vendor_groups(),
         string="Vendor Group",
@@ -27,63 +35,184 @@ class GeneralLedger(models.Model):
     # --------------------------------------------
     @api.model
     def _get_vendor_groups(self):
-        self.env.cr.execute("""
-            SELECT DISTINCT vendor_group
-            FROM res_partner
-            WHERE vendor_group IS NOT NULL
-            ORDER BY vendor_group
-        """)
-        results = self.env.cr.fetchall()
+        allowed_companies = self.env.user.company_ids.ids
+        if allowed_companies:
+            self.env.cr.execute("""
+                SELECT DISTINCT vendor_group
+                FROM res_partner
+                WHERE vendor_group IS NOT NULL
+                  AND (company_id IS NULL OR company_id IN %s)
+                ORDER BY vendor_group
+            """, (tuple(allowed_companies),))
+            results = self.env.cr.fetchall()
+        else:
+            results = []
         return [(row[0], row[0]) for row in results if row[0]]
 
     # --------------------------------------------
-    # Compute
+    # Centralized Data Fetcher (Used by HTML & Excel)
     # --------------------------------------------
-    @api.depends('date_from', 'date_to', 'partner_id', 'vendor_group')
-    def _compute_journal_breakdown(self):
-        self._build_html(company_id=None)
+    def _get_report_data(self):
+        self.ensure_one()
+        # Always resolve a valid company ID (selected company OR active session company)
+        target_company = self.company_id or self.env.company
+        company_id = target_company.id
 
-    # --------------------------------------------
-    # Core builder
-    # --------------------------------------------
-    def _build_html(self, company_id=None):
         AccountMoveLine = self.env['account.move.line'].sudo()
 
+        # 1. Base domain for move lines filtered strictly by target company
+        line_domain = [
+            ('partner_id', '!=', False),
+            ('move_id.state', '=', 'posted'),
+            ('company_id', '=', company_id),
+            ('account_id.account_type', 'in', ['asset_receivable', 'liability_payable']),
+        ]
+        if self.partner_id:
+            line_domain.append(('partner_id', '=', self.partner_id.id))
+        if self.vendor_group:
+            line_domain.append(('partner_id.vendor_group', '=', self.vendor_group))
+        if self.date_from:
+            line_domain.append(('date', '>=', self.date_from))
+        if self.date_to:
+            line_domain.append(('date', '<=', self.date_to))
+
+        # 2. Partner Domain
+        partner_domain = [
+            '&',
+            '|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0),
+            '|', ('company_id', '=', False), ('company_id', '=', company_id)
+        ]
+        partners = self.env['res.partner'].sudo().search(partner_domain)
+
+        if self.partner_id:
+            partners = partners.filtered(lambda p: p.id == self.partner_id.id)
+        if self.vendor_group:
+            partners = partners.filtered(lambda p: p.vendor_group == self.vendor_group)
+
+        # Detect account type field (compatibility)
+        acct_model = self.env['account.account']
+        atype_field = 'account_type' if 'account_type' in acct_model._fields else 'internal_type'
+        AR_VALUE = 'asset_receivable' if atype_field == 'account_type' else 'receivable'
+        AP_VALUE = 'liability_payable' if atype_field == 'account_type' else 'payable'
+
+        report_data = []
+        all_totals = {
+            'opening': 0.0,
+            'debit': 0.0,
+            'credit': 0.0,
+            'balance': 0.0,
+            'company_name': target_company.name,
+        }
+
+        for partner in partners:
+            partner_lines = AccountMoveLine.search(
+                line_domain + [('partner_id', '=', partner.id)],
+                order='date,id'
+            )
+
+            # Opening balance calculation
+            opening_balance = 0.0
+            opening_debit_sum = 0.0
+            opening_credit_sum = 0.0
+
+            if self.date_from:
+                base_opening_domain = [
+                    ('partner_id', '=', partner.id),
+                    ('move_id.state', '=', 'posted'),
+                    ('company_id', '=', company_id),
+                    ('date', '<', self.date_from),
+                ]
+
+                ar_grp = AccountMoveLine.read_group(
+                    base_opening_domain + [(f'account_id.{atype_field}', '=', AR_VALUE)],
+                    ['debit:sum', 'credit:sum'], []
+                )
+                ar_d = float((ar_grp[0].get('debit', 0.0) if ar_grp else 0.0) or 0.0)
+                ar_c = float((ar_grp[0].get('credit', 0.0) if ar_grp else 0.0) or 0.0)
+
+                ap_grp = AccountMoveLine.read_group(
+                    base_opening_domain + [(f'account_id.{atype_field}', '=', AP_VALUE)],
+                    ['debit:sum', 'credit:sum'], []
+                )
+                ap_d = float((ap_grp[0].get('debit', 0.0) if ap_grp else 0.0) or 0.0)
+                ap_c = float((ap_grp[0].get('credit', 0.0) if ap_grp else 0.0) or 0.0)
+
+                opening_debit_sum = ar_d + ap_d
+                opening_credit_sum = ar_c + ap_c
+                opening_balance = (ar_d - ar_c) - (ap_c - ap_d)
+
+            if not partner_lines and not opening_balance:
+                continue
+
+            period_total_debit = sum(float(l.debit) for l in partner_lines)
+            period_total_credit = sum(float(l.credit) for l in partner_lines)
+            period_ar = sum(
+                (float(l.debit) - float(l.credit)) for l in partner_lines
+                if getattr(l.account_id, atype_field) == AR_VALUE
+            )
+            period_ap = sum(
+                (float(l.credit) - float(l.debit)) for l in partner_lines
+                if getattr(l.account_id, atype_field) == AP_VALUE
+            )
+            final_balance = opening_balance + (period_ar - period_ap)
+
+            lines_data = []
+            running_receivable = 0.0
+            running_payable = 0.0
+
+            for line in partner_lines:
+                debit_val = float(line.debit)
+                credit_val = float(line.credit)
+                acc_type_val = getattr(line.account_id, atype_field)
+
+                if acc_type_val == AR_VALUE:
+                    running_receivable += (debit_val - credit_val)
+                elif acc_type_val == AP_VALUE:
+                    running_payable += (credit_val - debit_val)
+
+                running_balance = opening_balance + (running_receivable - running_payable)
+
+                lines_data.append({
+                    'date': line.date,
+                    'journal': line.move_id.journal_id.code or '',
+                    'account': f"{line.account_id.code} - {line.account_id.name}",
+                    'reference': line.move_id.name or '',
+                    'due_date': line.date_maturity or '',
+                    'debit': debit_val,
+                    'credit': credit_val,
+                    'balance': running_balance,
+                })
+
+            report_data.append({
+                'partner': partner,
+                'opening_balance': opening_balance,
+                'opening_debit_sum': opening_debit_sum,
+                'opening_credit_sum': opening_credit_sum,
+                'period_total_debit': period_total_debit,
+                'period_total_credit': period_total_credit,
+                'final_balance': final_balance,
+                'lines': lines_data,
+            })
+
+            all_totals['opening'] += opening_balance
+            all_totals['debit'] += period_total_debit
+            all_totals['credit'] += period_total_credit
+            all_totals['balance'] += final_balance
+
+        return report_data, all_totals
+
+    # --------------------------------------------
+    # Compute HTML
+    # --------------------------------------------
+    @api.depends('date_from', 'date_to', 'partner_id', 'vendor_group', 'company_id')
+    def _compute_journal_breakdown(self):
         for rec in self:
-            # Base domain for IN-PERIOD lines
-            line_domain = [
-                ('partner_id', '!=', False),
-                ('move_id.state', '=', 'posted'),
-                ('account_id.account_type', 'in', ['asset_receivable', 'liability_payable']),
-            ]
-            if rec.partner_id:
-                line_domain.append(('partner_id', '=', rec.partner_id.id))
-            if rec.vendor_group:
-                line_domain.append(('partner_id.vendor_group', '=', rec.vendor_group))
-            if rec.date_from:
-                line_domain.append(('date', '>=', rec.date_from))
-            if rec.date_to:
-                line_domain.append(('date', '<=', rec.date_to))
-            if company_id:
-                line_domain.append(('company_id', '=', company_id))
+            rec._build_html()
 
-            # Candidate partners (filtered by activity later)
-            partner_domain = ['|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0)]
-            if company_id:
-                partner_domain.append(('company_id', '=', company_id))
-            partners = self.env['res.partner'].search(partner_domain)
-            if rec.partner_id:
-                partners = partners.filtered(lambda p: p.id == rec.partner_id.id)
-            if rec.vendor_group:
-                partners = partners.filtered(lambda p: p.vendor_group == rec.vendor_group)
+    def _build_html(self):
+        for rec in self:
+            report_data, all_totals = rec._get_report_data()
 
-            # Detect account type field (compatibility)
-            acct_model = self.env['account.account']
-            atype_field = 'account_type' if 'account_type' in acct_model._fields else 'internal_type'
-            AR_VALUE = 'asset_receivable' if atype_field == 'account_type' else 'receivable'
-            AP_VALUE = 'liability_payable' if atype_field == 'account_type' else 'payable'
-
-            # HTML wrapper
             html = """
             <h3>Partner Ledger Report</h3>
             <table border='1' cellpadding='3' cellspacing='0'
@@ -97,82 +226,8 @@ class GeneralLedger(models.Model):
                 </tr>
             """
 
-            # Totals across all partners
-            all_total_opening = 0.0
-            all_total_debit = 0.0
-            all_total_credit = 0.0
-            all_final_balance = 0.0
-
-            for partner in partners:
-                # IN-PERIOD lines
-                partner_lines = AccountMoveLine.search(
-                    line_domain + [('partner_id', '=', partner.id)],
-                    order='date,id'
-                )
-
-                # ---------------- Opening Balance ----------------
-                opening_balance = 0.0
-                opening_debit_sum = 0.0
-                opening_credit_sum = 0.0
-                if rec.date_from:
-                    base_opening_domain = [
-                        ('partner_id', '=', partner.id),
-                        ('move_id.state', '=', 'posted'),
-                        ('date', '<', rec.date_from),
-                    ]
-                    if company_id:
-                        base_opening_domain.append(('company_id', '=', company_id))
-
-                    # Receivable
-                    ar_grp = AccountMoveLine.read_group(
-                        base_opening_domain + [(f'account_id.{atype_field}', '=', AR_VALUE)],
-                        ['debit:sum', 'credit:sum'], []
-                    )
-                    ar_d = float((ar_grp[0].get('debit', 0.0) if ar_grp else 0.0) or 0.0)
-                    ar_c = float((ar_grp[0].get('credit', 0.0) if ar_grp else 0.0) or 0.0)
-                    opening_ar = ar_d - ar_c
-
-                    # Payable
-                    ap_grp = AccountMoveLine.read_group(
-                        base_opening_domain + [(f'account_id.{atype_field}', '=', AP_VALUE)],
-                        ['debit:sum', 'credit:sum'], []
-                    )
-                    ap_d = float((ap_grp[0].get('debit', 0.0) if ap_grp else 0.0) or 0.0)
-                    ap_c = float((ap_grp[0].get('credit', 0.0) if ap_grp else 0.0) or 0.0)
-                    opening_ap = ap_c - ap_d
-
-                    opening_debit_sum = ar_d + ap_d
-                    opening_credit_sum = ar_c + ap_c
-                    opening_balance = opening_ar - opening_ap
-                # --------------------------------------------------
-
-                # Skip partner if no opening balance and no lines
-                if not partner_lines and not opening_balance:
-                    continue
-
-                # Period totals
-                period_total_debit = sum(float(l.debit) for l in partner_lines)
-                period_total_credit = sum(float(l.credit) for l in partner_lines)
-                period_ar = sum(
-                    (float(l.debit) - float(l.credit)) for l in partner_lines
-                    if getattr(l.account_id, atype_field) == AR_VALUE
-                )
-                period_ap = sum(
-                    (float(l.credit) - float(l.debit)) for l in partner_lines
-                    if getattr(l.account_id, atype_field) == AP_VALUE
-                )
-                period_net = period_ar - period_ap
-
-                # Final balance
-                final_balance = opening_balance + period_net
-
-                # Update global totals
-                all_total_opening += opening_balance
-                all_total_debit += period_total_debit
-                all_total_credit += period_total_credit
-                all_final_balance += final_balance
-
-                # -------- Partner row with collapse/expand details --------
+            for pdata in report_data:
+                partner = pdata['partner']
                 html += f"""
                 <tr>
                     <td style='text-align:left;'>
@@ -190,69 +245,54 @@ class GeneralLedger(models.Model):
                                     </tr>
                                     <tr style='background:#fafafa;'>
                                         <td></td><td></td><td></td><td><i>Initial Balance</i></td><td></td>
-                                        <td style='text-align:right;'>{opening_debit_sum:,.2f}</td>
-                                        <td style='text-align:right;'>{opening_credit_sum:,.2f}</td>
-                                        <td style='text-align:right;'>{opening_balance:,.2f}</td>
+                                        <td style='text-align:right;'>{pdata['opening_debit_sum']:,.2f}</td>
+                                        <td style='text-align:right;'>{pdata['opening_credit_sum']:,.2f}</td>
+                                        <td style='text-align:right;'>{pdata['opening_balance']:,.2f}</td>
                                     </tr>
                 """
 
-                running_receivable = 0.0
-                running_payable = 0.0
-                for line in partner_lines:
-                    debit_val = float(line.debit)
-                    credit_val = float(line.credit)
-                    acc_type_val = getattr(line.account_id, atype_field)
-
-                    if acc_type_val == AR_VALUE:
-                        running_receivable += (debit_val - credit_val)
-                    elif acc_type_val == AP_VALUE:
-                        running_payable += (credit_val - debit_val)
-
-                    running_balance = opening_balance + (running_receivable - running_payable)
-
+                for line in pdata['lines']:
                     html += f"""
                                     <tr>
-                                        <td>{line.date}</td>
-                                        <td>{line.move_id.journal_id.code}</td>
-                                        <td>{line.account_id.code} - {line.account_id.name}</td>
-                                        <td>{line.move_id.name or ''}</td>
-                                        <td>{line.date_maturity or ''}</td>
-                                        <td style='text-align:right;'>{debit_val:,.2f}</td>
-                                        <td style='text-align:right;'>{credit_val:,.2f}</td>
-                                        <td style='text-align:right;'>{running_balance:,.2f}</td>
+                                        <td>{line['date']}</td>
+                                        <td>{line['journal']}</td>
+                                        <td>{line['account']}</td>
+                                        <td>{line['reference']}</td>
+                                        <td>{line['due_date']}</td>
+                                        <td style='text-align:right;'>{line['debit']:,.2f}</td>
+                                        <td style='text-align:right;'>{line['credit']:,.2f}</td>
+                                        <td style='text-align:right;'>{line['balance']:,.2f}</td>
                                     </tr>
                     """
 
                 html += f"""
                                     <tr style='background:#eee; font-weight:bold;'>
                                         <td colspan="5" style='text-align:right;'>Total {partner.name}</td>
-                                        <td style='text-align:right;'>{period_total_debit:,.2f}</td>
-                                        <td style='text-align:right;'>{period_total_credit:,.2f}</td>
-                                        <td style='text-align:right;'>{final_balance:,.2f}</td>
+                                        <td style='text-align:right;'>{pdata['period_total_debit']:,.2f}</td>
+                                        <td style='text-align:right;'>{pdata['period_total_credit']:,.2f}</td>
+                                        <td style='text-align:right;'>{pdata['final_balance']:,.2f}</td>
                                     </tr>
                                 </table>
                             </div>
                         </details>
                     </td>
-                    <td style='text-align:right;'>{opening_balance:,.2f}</td>
-                    <td style='text-align:right;'>{period_total_debit:,.2f}</td>
-                    <td style='text-align:right;'>{period_total_credit:,.2f}</td>
-                    <td style='text-align:right;'>{final_balance:,.2f}</td>
+                    <td style='text-align:right;'>{pdata['opening_balance']:,.2f}</td>
+                    <td style='text-align:right;'>{pdata['period_total_debit']:,.2f}</td>
+                    <td style='text-align:right;'>{pdata['period_total_credit']:,.2f}</td>
+                    <td style='text-align:right;'>{pdata['final_balance']:,.2f}</td>
                 </tr>
                 """
 
-            # ===== Global Totals Row =====
             html += f"""
             <tr style='background:#cce5ff; font-weight:bold;'>
                 <td style='text-align:right;'>All Partners Total</td>
-                <td style='text-align:right;'>{all_total_opening:,.2f}</td>
-                <td style='text-align:right;'>{all_total_debit:,.2f}</td>
-                <td style='text-align:right;'>{all_total_credit:,.2f}</td>
-                <td style='text-align:right;'>{all_final_balance:,.2f}</td>
+                <td style='text-align:right;'>{all_totals['opening']:,.2f}</td>
+                <td style='text-align:right;'>{all_totals['debit']:,.2f}</td>
+                <td style='text-align:right;'>{all_totals['credit']:,.2f}</td>
+                <td style='text-align:right;'>{all_totals['balance']:,.2f}</td>
             </tr>
+            </table>
             """
-
-            html += "</table>"
             rec.partner_journal_breakdown = html
 
     # --------------------------------------------
@@ -261,14 +301,14 @@ class GeneralLedger(models.Model):
     def action_refresh_current_company(self):
         for rec in self:
             rec.partner_journal_breakdown = False
-            rec._build_html(company_id=self.env.company.id)
+            rec._build_html()
         return True
 
     def action_export_xlsx(self):
         self.ensure_one()
         return {
             'type': 'ir.actions.act_url',
-            'url': f'/group_party/export_xlsx?record_id={self.id}',
+            'url': f'/group_party/export_xlsx?record_id={self.id}&ts={fields.Datetime.now().timestamp()}',
             'target': 'self',
         }
 
@@ -276,6 +316,6 @@ class GeneralLedger(models.Model):
         self.ensure_one()
         return {
             'type': 'ir.actions.act_url',
-            'url': f'/group_party/export_totals_xlsx?record_id={self.id}',
+            'url': f'/group_party/export_totals_xlsx?record_id={self.id}&ts={fields.Datetime.now().timestamp()}',
             'target': 'self',
         }
