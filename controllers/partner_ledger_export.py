@@ -5,7 +5,7 @@ import xlsxwriter
 
 class GroupPartyExportController(http.Controller):
 
-    @http.route(['/group_party/export_xlsx'], type='http', auth="user")
+    @http.route(['/group_party2/export_xlsx'], type='http', auth="user")
     def export_xlsx(self, record_id=None, **kwargs):
         record = request.env['group.party'].browse(int(record_id))
         if not record.exists():
