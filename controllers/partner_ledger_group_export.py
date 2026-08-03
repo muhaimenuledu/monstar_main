@@ -46,6 +46,9 @@ class PartnerLedgerGroupExportController(http.Controller):
             domain.append(('date', '<=', record.date_to))
         if record.partner_id:
             domain.append(('partner_id', '=', record.partner_id.id))
+        # NEW: restrict move lines to the selected company
+        if getattr(record, 'company_id', False):
+            domain.append(('company_id', '=', record.company_id.id))
 
         move_lines = AccountMoveLine.search(domain, order='date, id')
 
@@ -99,15 +102,25 @@ class PartnerLedgerGroupExportController(http.Controller):
                 row += 1
 
             # === Partner summary balance ===
-            payable_receivable_accounts = AccountAccount.search([
+            account_domain = [
                 ('account_type', 'in', ['asset_receivable', 'liability_payable'])
-            ])
+            ]
+            # NEW: restrict receivable/payable accounts to the selected company
+            if getattr(record, 'company_id', False):
+                account_domain.append(('company_ids', 'in', record.company_id.id))
+            payable_receivable_accounts = AccountAccount.search(account_domain)
+
+            balance_domain = [
+                ('partner_id', '=', partner.id),
+                ('account_id', 'in', payable_receivable_accounts.ids),
+                ('move_id.state', '=', 'posted'),
+            ]
+            # NEW: restrict the balance calc to the selected company too
+            if getattr(record, 'company_id', False):
+                balance_domain.append(('company_id', '=', record.company_id.id))
+
             partner_lines = AccountMoveLine.read_group(
-                domain=[
-                    ('partner_id', '=', partner.id),
-                    ('account_id', 'in', payable_receivable_accounts.ids),
-                    ('move_id.state', '=', 'posted')
-                ],
+                domain=balance_domain,
                 fields=['debit', 'credit'],
                 groupby=[]
             )
