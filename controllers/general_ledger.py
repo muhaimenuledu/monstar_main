@@ -31,9 +31,14 @@ class GeneralLedgerXlsxController(http.Controller):
         AccountMoveLine = request.env['account.move.line'].sudo()
         Account = request.env['account.account'].sudo()
 
+        # ✅ NEW: restrict accounts to the selected company (mirrors model)
+        account_domain = [('id', '=', record.account_id.id)] if record.account_id else []
+        if getattr(record, 'company_id', False):
+            account_domain.append(('company_ids', 'in', record.company_id.id))
+
         accounts = (
-            Account.search([('id', '=', record.account_id.id)])
-            if record.account_id
+            Account.search(account_domain, order='code')
+            if account_domain
             else Account.search([], order='code')
         )
 
@@ -47,6 +52,9 @@ class GeneralLedgerXlsxController(http.Controller):
             ]
             if getattr(record, 'partner_id', False):
                 base_domain.append(('partner_id', '=', record.partner_id.id))
+            # ✅ NEW: company filter applied to all move line searches
+            if getattr(record, 'company_id', False):
+                base_domain.append(('company_id', '=', record.company_id.id))
 
             opening_balance = 0.0
             if record.date_from:
@@ -80,7 +88,7 @@ class GeneralLedgerXlsxController(http.Controller):
             # ---------------------------------------------------------
             # 4) Detail rows for the period
             #     period_balance = period-only (kept for totals/closing)
-            #     ✅ NEW: running_balance starts from opening_balance so
+            #     running_balance starts from opening_balance so
             #     each transaction row shows Opening + Period movement.
             # ---------------------------------------------------------
             period_balance = 0.0
@@ -88,9 +96,7 @@ class GeneralLedgerXlsxController(http.Controller):
             period_credit_total = 0.0
             account_rows = []
 
-            # ✅ NEW CHANGE START: running balance begins from opening
             running_balance = opening_balance
-            # ✅ NEW CHANGE END
 
             for line in move_lines:
                 label = line.name or line.move_id.name or ""
@@ -112,11 +118,9 @@ class GeneralLedgerXlsxController(http.Controller):
                 amount_dr = line.debit or 0.0
                 amount_cr = line.credit or 0.0
 
-                # ✅ NEW CHANGE START: update BOTH period_balance and running_balance
                 delta = amount_dr - amount_cr
                 period_balance += delta           # period-only (for totals/closing)
                 running_balance += delta          # opening + period (for row balance)
-                # ✅ NEW CHANGE END
 
                 period_debit_total += amount_dr
                 period_credit_total += amount_cr
@@ -129,7 +133,6 @@ class GeneralLedgerXlsxController(http.Controller):
                     'counter': counter,
                     'debit': amount_dr,
                     'credit': amount_cr,
-                    # ✅ NEW CHANGE: store running balance (opening + period)
                     'balance': running_balance,
                 })
 
@@ -194,4 +197,5 @@ class GeneralLedgerXlsxController(http.Controller):
 
 # balance at top
 # dr/cr at bottom
-#adding opening blnc
+# adding opening blnc
+# company filter applied to account search + move line domains
