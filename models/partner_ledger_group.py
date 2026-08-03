@@ -8,13 +8,19 @@ class PartnerLedgerGroup(models.Model):
     date_from = fields.Date(string="Start Date")
     date_to = fields.Date(string="End Date")
     partner_id = fields.Many2one("res.partner", string="Partner")
+    # NEW: company filter
+    company_id = fields.Many2one(
+        'res.company',
+        string="Filter by Company",
+        default=lambda self: self.env.company,
+    )
     partner_journal_breakdown = fields.Html(
         string="Partner Journal Breakdown",
         compute="_compute_journal_breakdown",
         store=False,
     )
 
-    @api.depends('date_from', 'date_to', 'partner_id')
+    @api.depends('date_from', 'date_to', 'partner_id', 'company_id')
     def _compute_journal_breakdown(self):
         AccountMoveLine = self.env['account.move.line'].sudo()
         AccountAccount = self.env['account.account'].sudo()
@@ -32,6 +38,9 @@ class PartnerLedgerGroup(models.Model):
                 domain.append(('date', '<=', rec.date_to))
             if rec.partner_id:
                 domain.append(('partner_id', '=', rec.partner_id.id))
+            # NEW: restrict move lines to the selected company
+            if rec.company_id:
+                domain.append(('company_id', '=', rec.company_id.id))
 
             move_lines = AccountMoveLine.search(domain, order='date, id')
 
@@ -109,15 +118,25 @@ class PartnerLedgerGroup(models.Model):
                     breakdown.append(row)
 
                 # === Calculate Current Balance for Partner ===
-                payable_receivable_accounts = AccountAccount.search([
+                account_domain = [
                     ('account_type', 'in', ['asset_receivable', 'liability_payable'])
-                ])
+                ]
+                # NEW: restrict receivable/payable accounts to the selected company
+                if rec.company_id:
+                    account_domain.append(('company_ids', 'in', rec.company_id.id))
+                payable_receivable_accounts = AccountAccount.search(account_domain)
+
+                balance_domain = [
+                    ('partner_id', '=', partner.id),
+                    ('account_id', 'in', payable_receivable_accounts.ids),
+                    ('move_id.state', '=', 'posted'),
+                ]
+                # NEW: restrict the balance calc to the selected company too
+                if rec.company_id:
+                    balance_domain.append(('company_id', '=', rec.company_id.id))
+
                 partner_lines = AccountMoveLine.read_group(
-                    domain=[
-                        ('partner_id', '=', partner.id),
-                        ('account_id', 'in', payable_receivable_accounts.ids),
-                        ('move_id.state', '=', 'posted')
-                    ],
+                    domain=balance_domain,
                     fields=['debit', 'credit'],
                     groupby=[]
                 )
