@@ -11,6 +11,7 @@ class ResPartner(models.Model):
 
     @api.model
     def _get_vendor_groups(self):
-        groups = self.env['beta.mode'].search([])
+        # Use sudo() to safely fetch vendor groups regardless of active company context
+        groups = self.env['beta.mode'].sudo().search([])
         # Return the group name as both key and display value
         return [(g.group, g.group) for g in groups if g.group]
