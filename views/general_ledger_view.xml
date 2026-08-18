@@ -6,19 +6,12 @@
       <field name="model">general.ledger</field>
       <field name="arch" type="xml">
         <list>
-          <!-- <field name="account_names"/>
-          <field name="partner_names"/> -->
-          <!-- <field name="account_breakdown" widget="text"/> -->
           <field name="journal_items" widget="html"/>
-          <!-- <field name="total_debit"/>
-          <field name="total_credit"/> -->
-
         </list>
       </field>
     </record>
 
-
-        <record id="view_form_general_ledger" model="ir.ui.view">
+    <record id="view_form_general_ledger" model="ir.ui.view">
         <field name="name">general.ledger.form</field>
         <field name="model">general.ledger</field>
         <field name="arch" type="xml">
@@ -31,13 +24,12 @@
                 </header>
                 <sheet>
                     <group>
-                        
                         <field name="account_id"/>
                         <field name="date_from"/>
                         <field name="date_to"/>
                         <field name="partner_id"/>
-                        <field name="company_id" groups="base.group_multi_company"/>
-
+                        <!-- Removed group evaluation to prevent cross-company access locks -->
+                        <field name="company_id" options="{'no_create': True, 'no_open': True}"/>
                     </group>
                     <group>
                         <field name="journal_items" nolabel="1"/>
@@ -47,10 +39,14 @@
         </field>
     </record>
 
-    <record id="action_general_ledger" model="ir.actions.act_window" >
+    <record id="action_general_ledger" model="ir.actions.act_window">
       <field name="name">General Ledger</field>
       <field name="res_model">general.ledger</field>
       <field name="view_mode">list,form</field>
       <field name="view_id" ref="general_ledg"/>
+      <!-- Dynamically binds default company context to active company session -->
+      <field name="context">{'default_company_id': allowed_company_ids[0]}</field>
+      <field name="domain">['|', ('company_id', '=', False), ('company_id', 'in', allowed_company_ids)]</field>
     </record>
+
 </odoo>
