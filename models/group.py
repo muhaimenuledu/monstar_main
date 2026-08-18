@@ -14,7 +14,7 @@ class GeneralLedger(models.Model):
         'res.company',
         string="Company",
         default=lambda self: self.env.company,
-        domain=lambda self: [('id', 'in', self.env.user.company_ids.ids)],
+        domain=lambda self: [('id', 'in', self.env.companies.ids)],
         help="Filter partners and transactions by company"
     )
 
@@ -31,23 +31,20 @@ class GeneralLedger(models.Model):
     )
 
     # --------------------------------------------
-    # Helpers
+    # Helpers (Cross-Company Safe Selection)
     # --------------------------------------------
     @api.model
     def _get_vendor_groups(self):
-        allowed_companies = self.env.user.company_ids.ids
+        # Use env.companies.ids (active company scope) with sudo to prevent rule crashes
+        allowed_companies = self.env.companies.ids
         if allowed_companies:
-            self.env.cr.execute("""
-                SELECT DISTINCT vendor_group
-                FROM res_partner
-                WHERE vendor_group IS NOT NULL
-                  AND (company_id IS NULL OR company_id IN %s)
-                ORDER BY vendor_group
-            """, (tuple(allowed_companies),))
-            results = self.env.cr.fetchall()
-        else:
-            results = []
-        return [(row[0], row[0]) for row in results if row[0]]
+            partners = self.env['res.partner'].sudo().search([
+                ('vendor_group', '!=', False),
+                '|', ('company_id', '=', False), ('company_id', 'in', allowed_companies)
+            ])
+            groups = sorted(list(set(partners.mapped('vendor_group'))))
+            return [(g, g) for g in groups if g]
+        return []
 
     # --------------------------------------------
     # Centralized Data Fetcher (Used by HTML & Excel)
@@ -76,7 +73,7 @@ class GeneralLedger(models.Model):
         if self.date_to:
             line_domain.append(('date', '<=', self.date_to))
 
-        # 2. Partner Domain
+        # 2. Partner Domain (Fetch using sudo)
         partner_domain = [
             '&',
             '|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0),
@@ -101,7 +98,7 @@ class GeneralLedger(models.Model):
             'debit': 0.0,
             'credit': 0.0,
             'balance': 0.0,
-            'company_name': target_company.name,
+            'company_name': target_company.sudo().name,
         }
 
         for partner in partners:
@@ -148,11 +145,11 @@ class GeneralLedger(models.Model):
             period_total_credit = sum(float(l.credit) for l in partner_lines)
             period_ar = sum(
                 (float(l.debit) - float(l.credit)) for l in partner_lines
-                if getattr(l.account_id, atype_field) == AR_VALUE
+                if getattr(l.account_id.sudo(), atype_field) == AR_VALUE
             )
             period_ap = sum(
                 (float(l.credit) - float(l.debit)) for l in partner_lines
-                if getattr(l.account_id, atype_field) == AP_VALUE
+                if getattr(l.account_id.sudo(), atype_field) == AP_VALUE
             )
             final_balance = opening_balance + (period_ar - period_ap)
 
@@ -161,9 +158,13 @@ class GeneralLedger(models.Model):
             running_payable = 0.0
 
             for line in partner_lines:
+                # Wrap relational lookups in sudo() to prevent cross-company blocks
+                move = line.move_id.sudo()
+                account = line.account_id.sudo()
+
                 debit_val = float(line.debit)
                 credit_val = float(line.credit)
-                acc_type_val = getattr(line.account_id, atype_field)
+                acc_type_val = getattr(account, atype_field)
 
                 if acc_type_val == AR_VALUE:
                     running_receivable += (debit_val - credit_val)
@@ -174,9 +175,9 @@ class GeneralLedger(models.Model):
 
                 lines_data.append({
                     'date': line.date,
-                    'journal': line.move_id.journal_id.code or '',
-                    'account': f"{line.account_id.code} - {line.account_id.name}",
-                    'reference': line.move_id.name or '',
+                    'journal': move.journal_id.code or '',
+                    'account': f"{account.code} - {account.name}",
+                    'reference': move.name or '',
                     'due_date': line.date_maturity or '',
                     'debit': debit_val,
                     'credit': credit_val,
