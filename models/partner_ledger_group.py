@@ -8,6 +8,7 @@ class PartnerLedgerGroup(models.Model):
     date_from = fields.Date(string="Start Date")
     date_to = fields.Date(string="End Date")
     partner_id = fields.Many2one("res.partner", string="Partner")
+    
     # NEW: company filter
     company_id = fields.Many2one(
         'res.company',
@@ -22,6 +23,7 @@ class PartnerLedgerGroup(models.Model):
 
     @api.depends('date_from', 'date_to', 'partner_id', 'company_id')
     def _compute_journal_breakdown(self):
+        # Use sudo() across base models to bypass multi-company record rule locks
         AccountMoveLine = self.env['account.move.line'].sudo()
         AccountAccount = self.env['account.account'].sudo()
 
@@ -38,7 +40,6 @@ class PartnerLedgerGroup(models.Model):
                 domain.append(('date', '<=', rec.date_to))
             if rec.partner_id:
                 domain.append(('partner_id', '=', rec.partner_id.id))
-            # NEW: restrict move lines to the selected company
             if rec.company_id:
                 domain.append(('company_id', '=', rec.company_id.id))
 
@@ -48,7 +49,8 @@ class PartnerLedgerGroup(models.Model):
             lines_by_partner = {}
 
             for line in move_lines:
-                partner = line.partner_id
+                # Group by partner ID to avoid recordset access rule crashes
+                partner = line.partner_id.sudo()
                 lines_by_partner.setdefault(partner, []).append(line)
 
             widths = {
@@ -62,7 +64,7 @@ class PartnerLedgerGroup(models.Model):
                 "account_cr": 30,
                 "amount_dr": 15,
                 "amount_cr": 15,
-                "balance": 15,  # Added Balance column
+                "balance": 15,
             }
 
             for partner, lines in lines_by_partner.items():
@@ -82,17 +84,26 @@ class PartnerLedgerGroup(models.Model):
                 )
                 breakdown.append(header)
 
-                running_balance = 0.0  # Initialize running balance per partner
+                running_balance = 0.0
 
                 for line in lines:
-                    move = line.move_id
+                    move = line.move_id.sudo()
+                    product = line.product_id.sudo()
+                    account = line.account_id.sudo()
 
                     label = (line.name or move.name or "Unavailable")[:widths["label"]]
                     ref = (move.ref or move.name or "Unavailable")[:widths["ref"]]
-                    product_group = (line.product_id.categ_id.name if line.product_id and line.product_id.categ_id else "Unavailable")[:widths["group"]]
-                    product_name = (line.product_id.display_name if line.product_id else "Unavailable")[:widths["product_name"]]
-                    account_dr = f"{line.account_id.code} - {line.account_id.name}" if line.debit else "Unavailable"
-                    account_cr = f"{line.account_id.code} - {line.account_id.name}" if line.credit else "Unavailable"
+                    
+                    product_group = (
+                        product.categ_id.sudo().name 
+                        if product and product.categ_id 
+                        else "Unavailable"
+                    )[:widths["group"]]
+                    
+                    product_name = (product.display_name if product else "Unavailable")[:widths["product_name"]]
+                    
+                    account_dr = f"{account.code} - {account.name}" if line.debit else "Unavailable"
+                    account_cr = f"{account.code} - {account.name}" if line.credit else "Unavailable"
 
                     unit_price = 0.0
                     if line.quantity:
@@ -100,7 +111,7 @@ class PartnerLedgerGroup(models.Model):
 
                     amount_dr = line.debit or 0.0
                     amount_cr = line.credit or 0.0
-                    running_balance += (amount_dr - amount_cr)  # Update running balance
+                    running_balance += (amount_dr - amount_cr)
 
                     row = "| {date} | {ref} | {label} | {group} | {product_name} | {unit_price} | {account_dr} | {account_cr} | {amount_dr} | {amount_cr} | {balance} |".format(
                         date=str(line.date)[:widths["date"]].ljust(widths["date"]),
@@ -117,13 +128,13 @@ class PartnerLedgerGroup(models.Model):
                     )
                     breakdown.append(row)
 
-                # === Calculate Current Balance for Partner ===
+                # === Calculate Current Balance for Partner Safely ===
                 account_domain = [
                     ('account_type', 'in', ['asset_receivable', 'liability_payable'])
                 ]
-                # NEW: restrict receivable/payable accounts to the selected company
                 if rec.company_id:
                     account_domain.append(('company_ids', 'in', rec.company_id.id))
+                
                 payable_receivable_accounts = AccountAccount.search(account_domain)
 
                 balance_domain = [
@@ -131,7 +142,6 @@ class PartnerLedgerGroup(models.Model):
                     ('account_id', 'in', payable_receivable_accounts.ids),
                     ('move_id.state', '=', 'posted'),
                 ]
-                # NEW: restrict the balance calc to the selected company too
                 if rec.company_id:
                     balance_domain.append(('company_id', '=', rec.company_id.id))
 
