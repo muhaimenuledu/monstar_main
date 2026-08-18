@@ -1,6 +1,5 @@
 from odoo import api, models, fields
 from collections import defaultdict
-from odoo.http import request
 
 class PartnerLedgerGroup(models.Model):
     _name = 'partner.ledger'
@@ -10,17 +9,26 @@ class PartnerLedgerGroup(models.Model):
     date_to = fields.Date(string="End Date")
     product_categ_id = fields.Many2one('product.category', string="Product Category")
     partner_id = fields.Many2one('res.partner', string="Partner")
+    
     # NEW: company filter
     company_id = fields.Many2one(
         'res.company',
         string="Filter by Company",
         default=lambda self: self.env.company,
     )
-    partner_journal_breakdown = fields.Html(string="Partner Journal Breakdown", compute="_compute_journal_breakdown", store=False)
+    partner_journal_breakdown = fields.Html(
+        string="Partner Journal Breakdown", 
+        compute="_compute_journal_breakdown", 
+        store=False
+    )
 
     @api.depends('date_from', 'date_to', 'product_categ_id', 'partner_id', 'company_id')
     def _compute_journal_breakdown(self):
         AccountMoveLine = self.env['account.move.line'].sudo()
+
+        # Fetch base URL safely from system parameters without using http request
+        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url', '').rstrip('/')
+        full_url = f"{base_url}/odoo/partner-ledger"
 
         for rec in self:
             base_domain = [('partner_id', '!=', False), ('move_id.state', '=', 'posted')]
@@ -28,7 +36,6 @@ class PartnerLedgerGroup(models.Model):
                 base_domain.append(('product_id.categ_id', '=', rec.product_categ_id.id))
             if rec.partner_id:
                 base_domain.append(('partner_id', '=', rec.partner_id.id))
-            # NEW: restrict all move lines to the selected company
             if rec.company_id:
                 base_domain.append(('company_id', '=', rec.company_id.id))
 
@@ -38,10 +45,6 @@ class PartnerLedgerGroup(models.Model):
             if rec.date_to:
                 trx_domain.append(('date', '<=', rec.date_to))
 
-            # Opening balance only makes sense when there is a start date to
-            # open "from". Without date_from, opening_domain would be
-            # identical to trx_domain and every line would be counted twice
-            # (once as opening, once as debit/credit) - so skip it entirely.
             if rec.date_from:
                 opening_domain = list(base_domain)
                 opening_domain.append(('date', '<', rec.date_from))
@@ -66,9 +69,6 @@ class PartnerLedgerGroup(models.Model):
                 grouped_data[group][partner]['debit'] += line.debit
                 grouped_data[group][partner]['credit'] += line.credit
 
-            base_url = request.httprequest.host_url.rstrip('/')
-            full_url = f"{base_url}/odoo/partner-ledger"
-
             html = (
                 "<h3>Party Ledger: Group Summary (One Line Per Partner) "
                 "<small style='font-weight:normal;'>"
@@ -84,7 +84,6 @@ class PartnerLedgerGroup(models.Model):
                 )
                 if rec.partner_id:
                     html += "<tr><td><strong>Partner Filter:</strong></td><td colspan='5'>%s</td></tr>" % rec.partner_id.name
-                # NEW: show which company the report is filtered to
                 html += "<tr><td><strong>Company Filter:</strong></td><td colspan='5'>%s</td></tr>" % (
                     rec.company_id.name if rec.company_id else "All"
                 )
