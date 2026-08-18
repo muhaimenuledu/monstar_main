@@ -60,8 +60,11 @@ class PartyStockSummary(models.Model):
 
             summary = {}
             for line in sale_lines:
-                partner = line.order_id.partner_id
-                product = line.product_id
+                # Use sudo() on relations to prevent cross-company record rule crashes
+                order = line.order_id.sudo()
+                partner = order.partner_id.sudo()
+                product = line.product_id.sudo()
+
                 if not partner or not product:
                     continue
                 summary.setdefault(partner, {})
@@ -76,8 +79,10 @@ class PartyStockSummary(models.Model):
                 summary[partner][product]["sold_price"] += line.product_uom_qty * line.price_unit
 
             for line in purchase_lines:
-                partner = line.order_id.partner_id
-                product = line.product_id
+                order = line.order_id.sudo()
+                partner = order.partner_id.sudo()
+                product = line.product_id.sudo()
+
                 if not partner or not product:
                     continue
                 summary.setdefault(partner, {})
@@ -122,10 +127,12 @@ class PartyStockSummary(models.Model):
                     partner_sold_qty_total += vals['sold_qty']
                     partner_sold_price_total += vals['sold_price']
 
+                    category = product.categ_id.sudo().name if product.categ_id else 'N/A'
+
                     html_sections += "<tr style='background:white;'>"
                     cells = [
                         product.display_name,
-                        product.categ_id.name or 'N/A',
+                        category,
                         f"{vals['bought_qty']:.2f}",
                         f"{vals['bought_price']:.2f}",
                         f"{vals['sold_qty']:.2f}",
